@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(powershell.exe -Command \"Set-Location 'C:\\\\Users\\\\USER\\\\soko'; npm install 2>&1 | Select-Object -Last 10\")",
+      "Bash(powershell.exe -Command \"Test-Path 'C:\\\\Users\\\\USER\\\\soko\\\\node_modules'\")",
+      "Bash(powershell.exe -Command 'Set-Location '\\\\''C:\\\\Users\\\\USER\\\\soko'\\\\''; node node_modules\\\\typescript\\\\bin\\\\tsc --noEmit 2>&1 | Where-Object { $_ -notmatch '\\\\''expo-router'\\\\'' -and $_ -notmatch '\\\\''expo/types'\\\\'' } | Select-Object -First 30')",
+      "Bash(node -e ' *)"
+    ]
+  }
+}
