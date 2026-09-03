@@ -2,6 +2,9 @@ node_modules/
 .expo/
 dist/
 web-build/
+
+# Obsidian notes vault (kept local, not versioned with the app)
+/soko/
 *.jks
 *.p8
 *.p12

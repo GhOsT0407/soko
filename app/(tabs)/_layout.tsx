@@ -1,39 +1,36 @@
 import { Tabs } from 'expo-router'
-import { View, Text, StyleSheet, Platform } from 'react-native'
+import { View, Text, StyleSheet } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { T } from '@/constants/theme'
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name']
 
 function TabIcon({
+  name,
   focused,
-  icon,
-  iconActive,
   label,
 }: {
+  name: IoniconName
   focused: boolean
-  icon: IoniconName
-  iconActive: IoniconName
   label: string
 }) {
-  return (
-    <View style={[ti.wrap, focused && ti.wrapActive]}>
-      <Ionicons
-        name={focused ? iconActive : icon}
-        size={22}
-        color={focused ? '#fff' : 'rgba(255,255,255,0.4)'}
-      />
-      <Text style={[ti.label, focused && ti.labelActive]}>{label}</Text>
-    </View>
-  )
+  if (focused) {
+    return (
+      <View style={s.activeTab}>
+        <Ionicons name={name} size={18} color={T.accent} />
+        <Text style={s.activeLabel}>{label}</Text>
+      </View>
+    )
+  }
+  return <Ionicons name={name as IoniconName} size={22} color={T.faint} />
 }
 
-export default function TabsLayout() {
+export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarStyle: ti.bar,
+        tabBarStyle: s.tabBar,
         tabBarShowLabel: false,
       }}
     >
@@ -41,7 +38,7 @@ export default function TabsLayout() {
         name="index"
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon focused={focused} icon="home-outline" iconActive="home" label="Home" />
+            <TabIcon name={focused ? 'home' : 'home-outline'} focused={focused} label="Home" />
           ),
         }}
       />
@@ -49,15 +46,7 @@ export default function TabsLayout() {
         name="sales"
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon focused={focused} icon="cash-outline" iconActive="cash" label="Sales" />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="inventory"
-        options={{
-          tabBarIcon: ({ focused }) => (
-            <TabIcon focused={focused} icon="cube-outline" iconActive="cube" label="Stock" />
+            <TabIcon name={focused ? 'receipt' : 'receipt-outline'} focused={focused} label="Sales" />
           ),
         }}
       />
@@ -65,7 +54,15 @@ export default function TabsLayout() {
         name="debts"
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon focused={focused} icon="people-outline" iconActive="people" label="Debts" />
+            <TabIcon name={focused ? 'people' : 'people-outline'} focused={focused} label="Debts" />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="inventory"
+        options={{
+          tabBarIcon: ({ focused }) => (
+            <TabIcon name={focused ? 'cube' : 'cube-outline'} focused={focused} label="Stock" />
           ),
         }}
       />
@@ -73,7 +70,7 @@ export default function TabsLayout() {
         name="ai"
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon focused={focused} icon="sparkles-outline" iconActive="sparkles" label="AI" />
+            <TabIcon name={focused ? 'sparkles' : 'sparkles-outline'} focused={focused} label="AI" />
           ),
         }}
       />
@@ -81,39 +78,29 @@ export default function TabsLayout() {
   )
 }
 
-const ti = StyleSheet.create({
-  bar: {
-    backgroundColor: T.dark,
-    borderTopWidth: 0,
-    height: Platform.OS === 'ios' ? 80 : 68,
-    paddingBottom: Platform.OS === 'ios' ? 20 : 6,
-    paddingTop: 6,
-    elevation: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 16,
+const s = StyleSheet.create({
+  tabBar: {
+    backgroundColor: T.bg,
+    borderTopWidth: 1,
+    borderTopColor: T.border,
+    height: 64,
+    paddingBottom: 8,
+    paddingTop: 8,
+    elevation: 0,
+    shadowOpacity: 0,
   },
-  wrap: {
+  activeTab: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 14,
-    gap: 4,
-    minWidth: 56,
+    gap: 6,
+    backgroundColor: T.accentLight,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
   },
-  wrapActive: {
-    backgroundColor: T.accent,
-  },
-  label: {
-    fontSize: 10,
-    color: 'rgba(255,255,255,0.4)',
-    fontWeight: '500',
-    letterSpacing: 0.3,
-  },
-  labelActive: {
-    color: '#fff',
+  activeLabel: {
+    fontSize: 13,
     fontWeight: '700',
+    color: T.accent,
   },
 })

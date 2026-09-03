@@ -16,8 +16,8 @@ import { SafeAreaView } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
 import { T, FONT } from '@/constants/theme'
 import { useStore } from '@/store'
+import { supabase } from '@/lib/supabase'
 import { extractSalesFromPhotos, RATE_LIMIT_DELAY_MS, sleep, type ExtractedSale } from '@/services/ai'
-import type { Sale } from '@/types'
 
 type PhotoAsset = { uri: string; base64: string }
 type ReviewSale = ExtractedSale & { _key: string; _keep: boolean }
@@ -30,7 +30,8 @@ function genId() {
 
 export default function PastSalesScreen() {
   const apiKey = useStore((s) => s.apiKey)
-  const addSales = useStore((s) => s.addSales)
+  const activeBusiness = useStore((s) => s.activeBusiness)
+  const session = useStore((s) => s.session)
 
   const [step, setStep] = useState<Step>('select')
   const [photos, setPhotos] = useState<PhotoAsset[]>([])
@@ -146,26 +147,33 @@ export default function PastSalesScreen() {
     )
   }
 
-  function handleSave() {
+  async function handleSave() {
     const toSave = reviewed.filter((r) => r._keep)
     if (toSave.length === 0) {
       Alert.alert('Nothing selected', 'Toggle on at least one sale to save.')
       return
     }
-    const sales: Sale[] = toSave.map((r) => ({
-      id: genId(),
+    if (!activeBusiness || !session) return
+    const rows = toSave.map((r) => ({
+      business_id: activeBusiness.id,
+      user_id: session.user.id,
       item: r.item || 'Unknown item',
-      category: '',
+      category: 'General',
       qty: 1,
       price: r.total || 0,
       total: r.total || 0,
       customer: r.customer || '',
-      isDebt: false,
-      createdAt: r.date ? new Date(r.date).toISOString() : new Date().toISOString(),
+      is_debt: false,
+      notes: '',
+      created_at: r.date ? new Date(r.date).toISOString() : new Date().toISOString(),
     }))
-    addSales(sales)
+    const { error } = await supabase.from('sales').insert(rows)
+    if (error) {
+      Alert.alert('Error', error.message)
+      return
+    }
     Alert.alert(
-      `${sales.length} sale${sales.length !== 1 ? 's' : ''} saved`,
+      `${rows.length} sale${rows.length !== 1 ? 's' : ''} saved`,
       'Your past sales have been added to your records.',
       [{ text: 'Done', onPress: () => router.back() }]
     )
@@ -447,7 +455,7 @@ const s = StyleSheet.create({
     borderRadius: 10,
     padding: 12,
   },
-  noKeyText: { flex: 1, fontSize: 12, color: T.revenueDark, lineHeight: 17 },
+  noKeyText: { flex: 1, fontSize: 12, color: T.warning, lineHeight: 17 },
 
   // Review step
   reviewHint: {

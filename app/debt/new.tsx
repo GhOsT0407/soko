@@ -17,34 +17,30 @@ import { T, FONT } from '@/constants/theme'
 import { supabase } from '@/lib/supabase'
 import { useStore } from '@/store'
 
-export default function NewInventoryScreen() {
+export default function NewDebtScreen() {
   const activeBusiness = useStore((s) => s.activeBusiness)
   const session = useStore((s) => s.session)
 
-  const [name, setName] = useState('')
-  const [qty, setQty] = useState('')
-  const [unit, setUnit] = useState('pcs')
-  const [costPrice, setCostPrice] = useState('')
-  const [sellPrice, setSellPrice] = useState('')
-  const [lowStock, setLowStock] = useState('5')
+  const [customer, setCustomer] = useState('')
+  const [phone, setPhone] = useState('')
+  const [amount, setAmount] = useState('')
+  const [description, setDescription] = useState('')
   const [saving, setSaving] = useState(false)
 
-  const canSave = name.trim().length > 0 && parseFloat(qty) >= 0
+  const canSave = customer.trim().length > 0 && parseFloat(amount) > 0
 
   async function handleSave() {
     if (!canSave || !activeBusiness || !session) return
     setSaving(true)
     try {
-      const { error } = await supabase.from('inventory').insert({
+      const { error } = await supabase.from('debts').insert({
         business_id: activeBusiness.id,
         user_id: session.user.id,
-        name: name.trim(),
-        category: 'General',
-        qty: parseFloat(qty) || 0,
-        unit: unit.trim() || 'pcs',
-        cost_price: costPrice ? parseFloat(costPrice) : null,
-        sell_price: sellPrice ? parseFloat(sellPrice) : null,
-        low_stock_threshold: parseFloat(lowStock) || 5,
+        customer: customer.trim(),
+        phone: phone.trim(),
+        amount: parseFloat(amount),
+        amount_paid: 0,
+        description: description.trim(),
       })
       if (error) throw error
       useStore.getState().clearCache()
@@ -66,80 +62,54 @@ export default function NewInventoryScreen() {
           <TouchableOpacity onPress={() => router.back()}>
             <Ionicons name="close" size={22} color={T.muted} />
           </TouchableOpacity>
-          <Text style={s.headerTitle}>Add Stock Item</Text>
+          <Text style={s.headerTitle}>Add Debt</Text>
           <View style={{ width: 22 }} />
         </View>
 
         <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
           <View style={s.field}>
-            <Text style={s.label}>ITEM NAME</Text>
+            <Text style={s.label}>CUSTOMER NAME</Text>
             <TextInput
-              style={[s.input, name.length > 0 && s.inputActive]}
-              value={name}
-              onChangeText={setName}
-              placeholder="e.g. Rice 50kg, Ankara fabric"
+              style={[s.input, customer.length > 0 && s.inputActive]}
+              value={customer}
+              onChangeText={setCustomer}
+              placeholder="e.g. Iya Tunde"
               placeholderTextColor={T.faint}
               autoFocus
             />
           </View>
 
-          <View style={s.row}>
-            <View style={[s.field, { flex: 2 }]}>
-              <Text style={s.label}>QUANTITY</Text>
-              <TextInput
-                style={[s.input, qty.length > 0 && s.inputActive]}
-                keyboardType="numeric"
-                value={qty}
-                onChangeText={setQty}
-                placeholder="0"
-                placeholderTextColor={T.faint}
-              />
-            </View>
-            <View style={[s.field, { flex: 1 }]}>
-              <Text style={s.label}>UNIT</Text>
-              <TextInput
-                style={[s.input, unit.length > 0 && s.inputActive]}
-                value={unit}
-                onChangeText={setUnit}
-                placeholder="pcs"
-                placeholderTextColor={T.faint}
-              />
-            </View>
-          </View>
-
-          <View style={s.row}>
-            <View style={[s.field, { flex: 1 }]}>
-              <Text style={s.label}>COST PRICE (₦)</Text>
-              <TextInput
-                style={[s.input, costPrice.length > 0 && s.inputActive]}
-                keyboardType="numeric"
-                value={costPrice}
-                onChangeText={setCostPrice}
-                placeholder="Optional"
-                placeholderTextColor={T.faint}
-              />
-            </View>
-            <View style={[s.field, { flex: 1 }]}>
-              <Text style={s.label}>SELL PRICE (₦)</Text>
-              <TextInput
-                style={[s.input, sellPrice.length > 0 && s.inputActive]}
-                keyboardType="numeric"
-                value={sellPrice}
-                onChangeText={setSellPrice}
-                placeholder="Optional"
-                placeholderTextColor={T.faint}
-              />
-            </View>
+          <View style={s.field}>
+            <Text style={s.label}>PHONE (OPTIONAL)</Text>
+            <TextInput
+              style={[s.input, phone.length > 0 && s.inputActive]}
+              value={phone}
+              onChangeText={setPhone}
+              placeholder="08012345678"
+              placeholderTextColor={T.faint}
+              keyboardType="phone-pad"
+            />
           </View>
 
           <View style={s.field}>
-            <Text style={s.label}>LOW STOCK ALERT BELOW</Text>
+            <Text style={s.label}>AMOUNT OWED (₦)</Text>
             <TextInput
-              style={[s.input, s.inputActive]}
+              style={[s.input, amount.length > 0 && s.inputActive]}
+              value={amount}
+              onChangeText={setAmount}
+              placeholder="0"
+              placeholderTextColor={T.faint}
               keyboardType="numeric"
-              value={lowStock}
-              onChangeText={setLowStock}
-              placeholder="5"
+            />
+          </View>
+
+          <View style={s.field}>
+            <Text style={s.label}>DESCRIPTION (OPTIONAL)</Text>
+            <TextInput
+              style={[s.input, description.length > 0 && s.inputActive]}
+              value={description}
+              onChangeText={setDescription}
+              placeholder="What was sold / what for?"
               placeholderTextColor={T.faint}
             />
           </View>
@@ -152,7 +122,9 @@ export default function NewInventoryScreen() {
             disabled={!canSave || saving}
             activeOpacity={0.85}
           >
-            <Text style={s.saveBtnText}>{saving ? 'Saving...' : 'Add to Stock'}</Text>
+            <Text style={s.saveBtnText}>
+              {saving ? 'Saving...' : canSave ? `Add Debt — ₦${parseFloat(amount || '0').toLocaleString()}` : 'Enter customer & amount'}
+            </Text>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -192,7 +164,6 @@ const s = StyleSheet.create({
     color: T.text,
   },
   inputActive: { borderColor: T.accent },
-  row: { flexDirection: 'row', gap: 12 },
   footer: { padding: 16, paddingBottom: 24, borderTopWidth: 1, borderTopColor: T.border },
   saveBtn: {
     backgroundColor: T.accent,
