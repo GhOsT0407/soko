@@ -1,27 +1,42 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  RefreshControl,
-} from 'react-native'
+import { View, StyleSheet, ScrollView, RefreshControl } from 'react-native'
 import { router } from 'expo-router'
-import { SafeAreaView } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
-import { T, FONT } from '@/constants/theme'
+import { T, SP, FONT } from '@/constants/theme'
+import { BUSINESS_TYPES, TAILORED, type BusinessTypeId } from '@/constants/data'
 import { supabase } from '@/lib/supabase'
 import { scheduleDebtReminder } from '@/lib/notifications'
+import { naira, daysSince, whenLabel, plural } from '@/lib/format'
 import { useStore } from '@/store'
 import type { Sale, Debt, InventoryItem } from '@/types'
+import {
+  Screen, Txt, Card, Button, Segmented, StatTile, SectionHeader, ListRow, EmptyState, NoteCard, Avatar,
+} from '@/components'
 
-function fmt(n: number) {
-  return '₦' + n.toLocaleString()
+type Period = 'today' | 'yesterday' | 'week'
+
+const PERIODS: { key: Period; label: string }[] = [
+  { key: 'today', label: 'Today' },
+  { key: 'yesterday', label: 'Yesterday' },
+  { key: 'week', label: 'This week' },
+]
+
+const DAY = 86400000
+const CACHE_TTL = 30_000
+
+function startOfDay(d: Date) {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate())
 }
 
-function daysSince(dateStr: string) {
-  return Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000)
+function between(sale: Sale, from: Date, to: Date) {
+  const t = new Date(sale.created_at).getTime()
+  return t >= from.getTime() && t < to.getTime()
+}
+
+// Sentence-case the tailored copy ("Log a Job" → "Log a job") so it sits
+// beside the kit's other buttons.
+function sentence(label: string) {
+  return label.charAt(0) + label.slice(1).toLowerCase()
 }
 
 export default function DashboardScreen() {
@@ -33,16 +48,35 @@ export default function DashboardScreen() {
   const [inventory, setInventory] = useState<InventoryItem[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [period, setPeriod] = useState<Period>('today')
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     if (!activeBusiness) return
+    // Serve the shared 30s cache when every slice is fresh, like the other
+    // tabs do; a pull-to-refresh forces a fetch.
+    const st = useStore.getState()
+    const fresh = <R,>(c: { data: R[]; at: number } | null) =>
+      !force && c && Date.now() - c.at < CACHE_TTL ? c.data : null
+    const cs = fresh(st.salesCache)
+    const cd = fresh(st.debtsCache)
+    const ci = fresh(st.inventoryCache)
+    if (cs && cd && ci) {
+      setSales(cs)
+      setDebts(cd)
+      setInventory(ci)
+      setLoading(false)
+      return
+    }
+    // Two weeks of sales: enough to show "this week" against "last week".
+    const since = new Date(startOfDay(new Date()).getTime() - 13 * DAY).toISOString()
     const [s, d, i] = await Promise.all([
       supabase
         .from('sales')
         .select('*')
         .eq('business_id', activeBusiness.id)
+        .gte('created_at', since)
         .order('created_at', { ascending: false })
-        .limit(50),
+        .limit(1000),
       supabase
         .from('debts')
         .select('*')
@@ -53,9 +87,11 @@ export default function DashboardScreen() {
         .select('*')
         .eq('business_id', activeBusiness.id),
     ])
+    // The sales slice is two weeks, not the full ledger the Sales tab shows,
+    // so only the two identical queries write back to the cache.
     if (s.data) setSales(s.data)
-    if (d.data) setDebts(d.data)
-    if (i.data) setInventory(i.data)
+    if (d.data) { setDebts(d.data); st.setDebtsCache({ data: d.data, at: Date.now() }) }
+    if (i.data) { setInventory(i.data); st.setInventoryCache({ data: i.data, at: Date.now() }) }
     setLoading(false)
   }, [activeBusiness])
 
@@ -76,48 +112,57 @@ export default function DashboardScreen() {
     // Drop the shared cache too, or the other tabs keep serving the stale rows
     // this pull-to-refresh was meant to replace.
     useStore.getState().clearCache()
-    await load()
+    await load(true)
     setRefreshing(false)
   }, [load])
 
-  // Computed stats
-  const today = new Date().toDateString()
-  const yesterday = new Date(Date.now() - 86400000).toDateString()
-  const todaySales = sales.filter((s) => new Date(s.created_at).toDateString() === today)
-  const yesterdaySales = sales.filter((s) => new Date(s.created_at).toDateString() === yesterday)
+  // ── Period windows ──────────────────────────────────────────────
+  const today0 = startOfDay(new Date())
+  const tomorrow0 = new Date(today0.getTime() + DAY)
+  const yesterday0 = new Date(today0.getTime() - DAY)
+  const week0 = new Date(today0.getTime() - 6 * DAY)
+  const lastWeek0 = new Date(week0.getTime() - 7 * DAY)
+
+  const windows: Record<Period, { cur: [Date, Date]; prev: [Date, Date]; label: string; prevLabel: string }> = {
+    today: { cur: [today0, tomorrow0], prev: [yesterday0, today0], label: 'Sales today', prevLabel: 'yesterday' },
+    yesterday: { cur: [yesterday0, today0], prev: [new Date(yesterday0.getTime() - DAY), yesterday0], label: 'Sales yesterday', prevLabel: 'the day before' },
+    week: { cur: [week0, tomorrow0], prev: [lastWeek0, week0], label: 'Sales this week', prevLabel: 'last week' },
+  }
+  const w = windows[period]
+  const curSales = sales.filter((s) => between(s, w.cur[0], w.cur[1]))
+  const prevSales = sales.filter((s) => between(s, w.prev[0], w.prev[1]))
+  const revenue = curSales.reduce((sum, s) => sum + s.total, 0)
+  const prevRevenue = prevSales.reduce((sum, s) => sum + s.total, 0)
+  const cash = curSales.filter((s) => !s.is_debt).reduce((sum, s) => sum + s.total, 0)
+  const credit = revenue - cash
+  const changePct = prevRevenue > 0 ? Math.round(((revenue - prevRevenue) / prevRevenue) * 100) : null
+
+  // ── Today's figures for the summary note (always today, whatever the switcher shows) ──
+  const todaySales = sales.filter((s) => between(s, today0, tomorrow0))
   const todayRevenue = todaySales.reduce((sum, s) => sum + s.total, 0)
-  const yesterdayRevenue = yesterdaySales.reduce((sum, s) => sum + s.total, 0)
-  const todayCash = todaySales.filter((s) => !s.is_debt).reduce((sum, s) => sum + s.total, 0)
-  const revenueChangePct = yesterdayRevenue > 0
-    ? Math.round(((todayRevenue - yesterdayRevenue) / yesterdayRevenue) * 100)
-    : null
 
   const overdueDebts = debts.filter((d) => daysSince(d.created_at) > 7)
   const totalOwed = debts.reduce((sum, d) => sum + (d.amount - d.amount_paid), 0)
-
   const lowStock = inventory.filter((i) => i.qty <= i.low_stock_threshold)
-
   const recentSales = sales.slice(0, 5)
 
   function buildDailySummary(): string {
     if (todaySales.length === 0) {
       if (overdueDebts.length > 0) {
         const amt = overdueDebts.reduce((sum, d) => sum + (d.amount - d.amount_paid), 0)
-        return `No sales yet today. You have ${overdueDebts.length} overdue debt${overdueDebts.length !== 1 ? 's' : ''} worth ${fmt(amt)} — consider chasing them.`
+        return `No sales yet today. You have ${plural(overdueDebts.length, 'overdue debt')} worth ${naira(amt)} — consider chasing them.`
       }
-      return 'No sales recorded yet today. Tap the button below to get started.'
+      return 'No sales recorded yet today. Tap Record sale to get started.'
     }
-    const parts: string[] = [
-      `${todaySales.length} sale${todaySales.length !== 1 ? 's' : ''} today totalling ${fmt(todayRevenue)}.`,
-    ]
+    const parts: string[] = [`${plural(todaySales.length, 'sale')} today totalling ${naira(todayRevenue)}.`]
     if (overdueDebts.length > 0) {
       const amt = overdueDebts.reduce((sum, d) => sum + (d.amount - d.amount_paid), 0)
-      parts.push(`${overdueDebts.length} overdue debt${overdueDebts.length !== 1 ? 's' : ''} worth ${fmt(amt)} need chasing.`)
+      parts.push(`${plural(overdueDebts.length, 'overdue debt')} worth ${naira(amt)} need chasing.`)
     } else if (totalOwed > 0) {
-      parts.push(`${debts.length} customer${debts.length !== 1 ? 's' : ''} owe you ${fmt(totalOwed)} total.`)
+      parts.push(`${plural(debts.length, 'customer')} owe you ${naira(totalOwed)} total.`)
     }
     if (lowStock.length > 0) {
-      parts.push(`Restock ${lowStock.length} item${lowStock.length !== 1 ? 's' : ''} soon.`)
+      parts.push(`Restock ${plural(lowStock.length, 'item')} soon.`)
     }
     return parts.join(' ')
   }
@@ -130,392 +175,152 @@ export default function DashboardScreen() {
   }
 
   const ownerName = activeBusiness?.owner_name || session?.user.email?.split('@')[0] || 'there'
+  // "Shop / Provision Store" → "Shop": the eyebrow has one line.
+  const typeLabel = BUSINESS_TYPES.find((b) => b.id === activeBusiness?.type)?.label.split(' / ')[0]
+  const saleLabel = sentence(TAILORED[activeBusiness?.type as BusinessTypeId]?.saleLabel ?? 'Record sale')
 
   return (
-    <SafeAreaView style={s.container} edges={['top']}>
+    <Screen>
       <ScrollView
+        contentContainerStyle={s.content}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={T.accent} />}
       >
-        {/* Header */}
-        <View style={s.header}>
-          <View style={s.headerTop}>
-            <View>
-              <Text style={s.greeting}>{greeting()},</Text>
-              <Text style={s.ownerName}>{ownerName} 👋</Text>
-            </View>
-            <View style={s.headerActions}>
-              <TouchableOpacity style={s.headerBtn} onPress={() => router.push('/settings')}>
-                <Ionicons name="settings-outline" size={20} color={T.textSub} />
-              </TouchableOpacity>
-            </View>
+        {/* Greeting */}
+        <View style={s.hello}>
+          <View style={s.helloText}>
+            <Txt variant="title" numberOfLines={1}>{greeting()}, {ownerName}</Txt>
+            <Txt variant="label" numberOfLines={1}>
+              {activeBusiness?.name}{typeLabel ? ` · ${typeLabel}` : ''}
+            </Txt>
           </View>
-          <Text style={s.businessName}>{activeBusiness?.name}</Text>
+          <Avatar
+            name={ownerName}
+            onPress={() => router.push('/settings')}
+            accessibilityLabel="Settings"
+          />
         </View>
 
-        <View style={s.body}>
-          {/* Today's revenue */}
-          <View style={s.revenueCard}>
-            <Text style={s.revenueLabel}>TODAY'S REVENUE</Text>
-            <View style={s.revenueAmountRow}>
-              <Text style={s.revenueAmount}>{fmt(todayRevenue)}</Text>
-              {revenueChangePct !== null && (
-                <View style={[s.changeBadge, revenueChangePct < 0 && s.changeBadgeDown]}>
-                  <Ionicons
-                    name={revenueChangePct >= 0 ? 'arrow-up' : 'arrow-down'}
-                    size={11}
-                    color={revenueChangePct >= 0 ? T.green : T.error}
-                  />
-                  <Text style={[s.changeBadgeText, revenueChangePct < 0 && { color: T.error }]}>
-                    {Math.abs(revenueChangePct)}%
-                  </Text>
-                </View>
-              )}
+        <Segmented options={PERIODS} value={period} onChange={setPeriod} />
+
+        {/* The day's total, written straight onto the page */}
+        <View style={s.hero}>
+          <Txt variant="label">{w.label}</Txt>
+          <Txt variant="display">{loading ? '—' : naira(revenue)}</Txt>
+          {!loading && changePct !== null ? (
+            <View style={s.compare}>
+              <Ionicons
+                name={changePct >= 0 ? 'trending-up-outline' : 'trending-down-outline'}
+                size={15}
+                color={changePct >= 0 ? T.green : T.error}
+              />
+              <Txt style={[s.compareText, { color: changePct >= 0 ? T.green : T.error }]}>
+                {changePct >= 0 ? '+' : '−'}{Math.abs(changePct)}% on {w.prevLabel}
+              </Txt>
             </View>
-            <View style={s.revenueRow}>
-              <View style={s.revenueStat}>
-                <View style={[s.revenueDot, { backgroundColor: T.green }]} />
-                <Text style={s.revenueStatText}>{fmt(todayCash)} cash</Text>
-              </View>
-              <View style={s.revenueStat}>
-                <View style={[s.revenueDot, { backgroundColor: T.warning }]} />
-                <Text style={s.revenueStatText}>{fmt(todayRevenue - todayCash)} debt</Text>
-              </View>
-              <Text style={s.revenueStat2}>{todaySales.length} sales</Text>
-            </View>
-          </View>
-
-          {/* Daily summary */}
-          {!loading && (
-            <View style={s.summaryCard}>
-              <Ionicons name="bulb-outline" size={14} color={T.accent} />
-              <Text style={s.summaryText}>{buildDailySummary()}</Text>
-            </View>
-          )}
-
-          {/* Alerts */}
-          {(overdueDebts.length > 0 || lowStock.length > 0) && (
-            <View style={s.section}>
-              <Text style={s.sectionTitle}>NEEDS ATTENTION</Text>
-              <View style={s.alerts}>
-                {overdueDebts.length > 0 && (
-                  <TouchableOpacity
-                    style={s.alertCard}
-                    onPress={() => router.push('/(tabs)/debts')}
-                    activeOpacity={0.8}
-                  >
-                    <View style={[s.alertIcon, { backgroundColor: T.errorLight }]}>
-                      <Ionicons name="warning-outline" size={16} color={T.error} />
-                    </View>
-                    <View style={s.alertText}>
-                      <Text style={s.alertTitle}>
-                        {overdueDebts.length} overdue debt{overdueDebts.length > 1 ? 's' : ''}
-                      </Text>
-                      <Text style={s.alertSub}>
-                        {fmt(overdueDebts.reduce((sum, d) => sum + (d.amount - d.amount_paid), 0))} unpaid for 7+ days
-                      </Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={16} color={T.faint} />
-                  </TouchableOpacity>
-                )}
-
-                {lowStock.length > 0 && (
-                  <TouchableOpacity
-                    style={s.alertCard}
-                    onPress={() => router.push('/(tabs)/inventory')}
-                    activeOpacity={0.8}
-                  >
-                    <View style={[s.alertIcon, { backgroundColor: T.warningLight }]}>
-                      <Ionicons name="cube-outline" size={16} color={T.warning} />
-                    </View>
-                    <View style={s.alertText}>
-                      <Text style={s.alertTitle}>
-                        {lowStock.length} item{lowStock.length > 1 ? 's' : ''} low on stock
-                      </Text>
-                      <Text style={s.alertSub}>
-                        {lowStock.map((i) => i.name).slice(0, 3).join(', ')}
-                        {lowStock.length > 3 ? ` +${lowStock.length - 3} more` : ''}
-                      </Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={16} color={T.faint} />
-                  </TouchableOpacity>
-                )}
-              </View>
-            </View>
-          )}
-
-          {/* Outstanding debts summary */}
-          {totalOwed > 0 && (
-            <TouchableOpacity
-              style={s.debtBanner}
-              onPress={() => router.push('/(tabs)/debts')}
-              activeOpacity={0.8}
-            >
-              <View>
-                <Text style={s.debtBannerLabel}>TOTAL OWED TO YOU</Text>
-                <Text style={s.debtBannerAmount}>{fmt(totalOwed)}</Text>
-                <Text style={s.debtBannerSub}>from {debts.length} customer{debts.length !== 1 ? 's' : ''}</Text>
-              </View>
-              <Ionicons name="arrow-forward-circle" size={28} color={T.accent} />
-            </TouchableOpacity>
-          )}
-
-          {/* Recent sales */}
-          <View style={s.section}>
-            <View style={s.sectionRow}>
-              <Text style={s.sectionTitle}>RECENT SALES</Text>
-              <TouchableOpacity onPress={() => router.push('/(tabs)/sales')}>
-                <Text style={s.sectionLink}>See all</Text>
-              </TouchableOpacity>
-            </View>
-
-            {loading ? (
-              <Text style={s.emptyText}>Loading...</Text>
-            ) : recentSales.length === 0 ? (
-              <View style={s.emptyCard}>
-                <Text style={s.emptyTitle}>No sales yet</Text>
-                <Text style={s.emptyText}>Tap the button below to record your first sale.</Text>
-              </View>
-            ) : (
-              <View style={s.saleList}>
-                {recentSales.map((sale) => (
-                  <View key={sale.id} style={s.saleRow}>
-                    <View style={s.saleLeft}>
-                      <Text style={s.saleItem} numberOfLines={1}>{sale.item}</Text>
-                      {sale.customer ? (
-                        <Text style={s.saleCustomer}>{sale.customer}</Text>
-                      ) : null}
-                    </View>
-                    <View style={s.saleRight}>
-                      <Text style={[s.saleAmount, sale.is_debt && { color: T.warning }]}>
-                        {fmt(sale.total)}
-                      </Text>
-                      {sale.is_debt && (
-                        <View style={s.debtBadge}>
-                          <Text style={s.debtBadgeText}>DEBT</Text>
-                        </View>
-                      )}
-                    </View>
-                  </View>
-                ))}
-              </View>
-            )}
-          </View>
-
-          <View style={{ height: 20 }} />
+          ) : !loading && revenue > 0 ? (
+            <Txt variant="meta">Nothing {w.prevLabel} to compare against</Txt>
+          ) : null}
+          {!loading ? (
+            <Txt variant="meta">
+              {plural(curSales.length, 'sale')} · <Txt style={s.metaMono}>{naira(cash)}</Txt> cash · <Txt style={s.metaMono}>{naira(credit)}</Txt> credit
+            </Txt>
+          ) : null}
         </View>
+
+        {/* Primary actions */}
+        <View style={s.actions}>
+          <Button label={saleLabel} icon="add" size="lg" grow onPress={() => router.push('/sale/new')} />
+          <Button label="Add debt" icon="people-outline" size="lg" variant="secondary" grow onPress={() => router.push('/debt/new' as any)} />
+        </View>
+        <View style={s.links}>
+          <Button label="Add stock" variant="ghost" size="sm" icon="cube-outline" onPress={() => router.push('/inventory/new')} />
+          <Button label="Import past sales" variant="ghost" size="sm" icon="camera-outline" onPress={() => router.push('/past-sales')} />
+        </View>
+
+        {/* KPIs */}
+        <View style={s.kpis}>
+          <StatTile
+            label="Owed to you"
+            value={loading ? '—' : naira(totalOwed)}
+            meta={
+              loading ? undefined
+                : debts.length === 0 ? 'Nobody owes you'
+                : overdueDebts.length > 0 ? `${overdueDebts.length} overdue of ${debts.length}`
+                : `${plural(debts.length, 'customer')}, none overdue`
+            }
+            tone={overdueDebts.length > 0 ? 'bad' : debts.length > 0 ? 'neutral' : 'good'}
+            onPress={() => router.push('/(tabs)/debts')}
+          />
+          <StatTile
+            label="Low stock"
+            value={loading ? '—' : plural(lowStock.length, 'item')}
+            meta={
+              loading ? undefined
+                : inventory.length === 0 ? 'No stock tracked yet'
+                : lowStock.length > 0 ? 'Restock soon'
+                : 'All stocked up'
+            }
+            tone={lowStock.length > 0 ? 'warn' : inventory.length > 0 ? 'good' : 'neutral'}
+            onPress={() => router.push('/(tabs)/inventory')}
+          />
+        </View>
+
+        {/* Recent sales — the ledger */}
+        <View style={s.section}>
+          <SectionHeader title="Recent sales" action="All sales" onAction={() => router.push('/(tabs)/sales')} />
+          {loading ? null : recentSales.length === 0 ? (
+            <Card padded={false}>
+              <EmptyState
+                icon="receipt-outline"
+                title="Nothing in the book yet"
+                body="Record your first sale — it takes ten seconds."
+              />
+            </Card>
+          ) : (
+            <Card padded={false}>
+              {recentSales.map((sale, idx) => (
+                <ListRow
+                  key={sale.id}
+                  when={whenLabel(sale.created_at)}
+                  title={sale.item}
+                  meta={
+                    <Txt variant="meta" numberOfLines={1}>
+                      {sale.customer || 'Walk-in'}
+                      {sale.is_debt ? <Txt style={s.onCredit}> · on credit</Txt> : null}
+                    </Txt>
+                  }
+                  amount={naira(sale.total)}
+                  amountColor={sale.is_debt ? T.warning : undefined}
+                  last={idx === recentSales.length - 1}
+                />
+              ))}
+            </Card>
+          )}
+        </View>
+
+        {!loading ? <NoteCard text={buildDailySummary()} /> : null}
       </ScrollView>
-
-      {/* FAB */}
-      <TouchableOpacity
-        style={s.fab}
-        onPress={() => router.push('/sale/new')}
-        activeOpacity={0.85}
-      >
-        <Ionicons name="add" size={26} color="#fff" />
-        <Text style={s.fabText}>Record Sale</Text>
-      </TouchableOpacity>
-    </SafeAreaView>
+    </Screen>
   )
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: T.bg },
+  content: { padding: SP.xl, gap: SP.lg, paddingBottom: SP.xxl },
 
-  header: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: T.border,
-    gap: 4,
-  },
-  headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  headerActions: { flexDirection: 'row', gap: 8 },
-  headerBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: T.surface,
-    borderWidth: 1,
-    borderColor: T.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  greeting: { fontSize: 13, color: T.muted },
-  ownerName: { fontSize: 20, fontWeight: '800', color: T.text, letterSpacing: -0.5 },
-  businessName: { fontSize: 12, color: T.accent, fontWeight: '600', marginTop: 4 },
+  hello: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SP.md },
+  helloText: { flex: 1, gap: 4 },
 
-  body: { padding: 20, gap: 20 },
+  hero: { gap: 4, paddingHorizontal: 2 },
+  compare: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  compareText: { fontFamily: FONT.sansBold, fontSize: 13, lineHeight: 18 },
+  metaMono: { fontFamily: FONT.mono, fontSize: 12, lineHeight: 16, color: T.textSub },
 
-  revenueCard: {
-    backgroundColor: T.dark,
-    borderRadius: 18,
-    padding: 20,
-    gap: 8,
-  },
-  revenueLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: 'rgba(255,255,255,0.4)',
-    letterSpacing: 1.5,
-    fontFamily: FONT.mono,
-  },
-  revenueAmountRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 10 },
-  revenueAmount: {
-    fontSize: 40,
-    fontWeight: '900',
-    color: '#fff',
-    letterSpacing: -1.5,
-  },
-  changeBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    backgroundColor: 'rgba(52,211,153,.16)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    marginBottom: 6,
-  },
-  changeBadgeDown: { backgroundColor: 'rgba(220,38,38,.16)' },
-  changeBadgeText: { fontSize: 11, fontWeight: '700', color: T.green },
-  revenueRow: { flexDirection: 'row', alignItems: 'center', gap: 14, flexWrap: 'wrap' },
-  revenueStat: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  revenueDot: { width: 8, height: 8, borderRadius: 4 },
-  revenueStatText: { fontSize: 13, color: 'rgba(255,255,255,0.6)' },
-  revenueStat2: { fontSize: 13, color: 'rgba(255,255,255,0.4)', marginLeft: 'auto' },
+  actions: { flexDirection: 'row', gap: SP.sm },
+  links: { flexDirection: 'row', gap: SP.xs, marginTop: -SP.sm, marginLeft: -SP.md },
 
-  summaryCard: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 8,
-    backgroundColor: T.accentLight,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: T.accent + '22',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  summaryText: { flex: 1, fontSize: 13, color: T.accent, fontWeight: '500', lineHeight: 19 },
+  kpis: { flexDirection: 'row', gap: SP.sm },
 
-  section: { gap: 10 },
-  sectionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  sectionTitle: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: T.muted,
-    letterSpacing: 1.5,
-    fontFamily: FONT.mono,
-  },
-  sectionLink: { fontSize: 13, color: T.accent, fontWeight: '600' },
-
-  alerts: { gap: 8 },
-  alertCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: T.surface,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: T.border,
-    padding: 14,
-  },
-  alertIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  alertText: { flex: 1, gap: 2 },
-  alertTitle: { fontSize: 14, fontWeight: '700', color: T.text },
-  alertSub: { fontSize: 12, color: T.muted },
-
-  debtBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: T.accentLight,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: T.accent + '33',
-    padding: 16,
-  },
-  debtBannerLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: T.accent,
-    letterSpacing: 1.5,
-    fontFamily: FONT.mono,
-    marginBottom: 4,
-  },
-  debtBannerAmount: { fontSize: 26, fontWeight: '900', color: T.accent, letterSpacing: -0.5 },
-  debtBannerSub: { fontSize: 12, color: T.accentMid, marginTop: 2 },
-
-  emptyCard: {
-    backgroundColor: T.surface,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: T.border,
-    padding: 20,
-    alignItems: 'center',
-    gap: 6,
-  },
-  emptyTitle: { fontSize: 15, fontWeight: '700', color: T.text },
-  emptyText: { fontSize: 13, color: T.muted, textAlign: 'center' },
-
-  saleList: {
-    backgroundColor: T.surface,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: T.border,
-    overflow: 'hidden',
-  },
-  saleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 13,
-    borderBottomWidth: 1,
-    borderBottomColor: T.border,
-  },
-  saleLeft: { flex: 1, gap: 2 },
-  saleItem: { fontSize: 14, fontWeight: '600', color: T.text },
-  saleCustomer: { fontSize: 12, color: T.muted },
-  saleRight: { alignItems: 'flex-end', gap: 3 },
-  saleAmount: { fontSize: 15, fontWeight: '800', color: T.text },
-  debtBadge: {
-    backgroundColor: T.warningLight,
-    borderRadius: 4,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-  },
-  debtBadgeText: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: T.warning,
-    letterSpacing: 0.5,
-    fontFamily: FONT.mono,
-  },
-
-  fab: {
-    position: 'absolute',
-    bottom: 84,
-    alignSelf: 'center',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: T.accent,
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    borderRadius: 30,
-    shadowColor: T.accent,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  fabText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  section: { gap: SP.sm },
+  onCredit: { fontFamily: FONT.serifItalic, fontSize: 12, lineHeight: 16, color: T.error },
 })

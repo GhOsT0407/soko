@@ -1,22 +1,20 @@
 import { useState, useRef, useCallback } from 'react'
 import {
   View,
-  Text,
   StyleSheet,
   TextInput,
-  TouchableOpacity,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
   Alert,
 } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
-import { T, FONT } from '@/constants/theme'
+import { T, FONT, R, SP } from '@/constants/theme'
 import { useStore } from '@/store'
 import { chatWithAI, type ChatMessage } from '@/services/ai'
 import { supabase } from '@/lib/supabase'
+import { Screen, Txt, Card, Button, IconButton, Input, ScreenHeader } from '@/components'
 
 const QUICK_PROMPTS = [
   'How am I doing this month?',
@@ -108,64 +106,61 @@ export default function AIScreen() {
 
   if (!apiKey) {
     return (
-      <SafeAreaView style={s.container} edges={['top']}>
-        <View style={s.header}>
-          <Ionicons name="sparkles" size={18} color={T.accent} />
-          <Text style={s.headerTitle}>AI Assistant</Text>
-        </View>
+      <Screen>
+        <ScreenHeader title="Assistant" subtitle="Ask about your sales, debts and stock" />
         <View style={s.setupWrap}>
-          <View style={s.setupCard}>
-            <Text style={s.setupIcon}>✦</Text>
-            <Text style={s.setupTitle}>Connect Gemini AI</Text>
-            <Text style={s.setupSub}>
-              Enter your Google Gemini API key to unlock AI-powered financial insights and photo extraction.
-              {'\n\n'}Free at aistudio.google.com
-            </Text>
-            <TextInput
-              style={s.setupInput}
-              placeholder="AIza..."
-              placeholderTextColor={T.faint}
+          <Card style={s.setupCard}>
+            <View style={s.disc}>
+              <Ionicons name="sparkles" size={24} color={T.accent} />
+            </View>
+            <Txt variant="title" align="center" style={s.centered}>Connect Gemini</Txt>
+            <Txt variant="meta" align="center" style={[s.centered, s.setupBody]}>
+              Paste a Google Gemini API key to unlock the assistant and photo import. It's free at aistudio.google.com.
+            </Txt>
+            <Input
+              mono
+              placeholder="AIza…"
               value={keyEntry}
               onChangeText={setKeyEntry}
               autoCapitalize="none"
               autoCorrect={false}
               secureTextEntry
+              containerStyle={s.setupInput}
             />
-            <TouchableOpacity
-              style={[s.setupBtn, !keyEntry.trim() && s.setupBtnDisabled]}
-              onPress={() => { if (keyEntry.trim()) setApiKey(keyEntry.trim()) }}
+            <Button
+              label="Connect"
+              size="lg"
               disabled={!keyEntry.trim()}
-            >
-              <Text style={s.setupBtnText}>Connect</Text>
-            </TouchableOpacity>
-            <Text style={s.setupHint}>Stored only on this device · never shared</Text>
-          </View>
+              onPress={() => { if (keyEntry.trim()) setApiKey(keyEntry.trim()) }}
+              style={s.setupBtn}
+            />
+            <Txt variant="meta" align="center">Stored only on this phone · never sent to Soko</Txt>
+          </Card>
         </View>
-      </SafeAreaView>
+      </Screen>
     )
   }
 
   return (
-    <SafeAreaView style={s.container} edges={['top']}>
-      <View style={s.header}>
-        <Ionicons name="sparkles" size={18} color={T.accent} />
-        <Text style={s.headerTitle}>AI Assistant</Text>
-        <TouchableOpacity
-          onPress={() =>
-            Alert.alert('Remove API Key', 'This will disconnect the AI assistant.', [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Remove', style: 'destructive', onPress: () => setApiKey('') },
-            ])
-          }
-        >
-          <Ionicons name="key-outline" size={18} color={T.faint} />
-        </TouchableOpacity>
-      </View>
+    <Screen>
+      <ScreenHeader
+        title="Assistant"
+        subtitle={activeBusiness ? `Knows ${activeBusiness.name}'s books` : undefined}
+        right={
+          <IconButton
+            icon="key-outline"
+            accessibilityLabel="Remove API key"
+            onPress={() =>
+              Alert.alert('Remove API key?', 'This disconnects the assistant until you add a key again.', [
+                { text: 'Cancel', style: 'cancel' },
+                { text: 'Remove', style: 'destructive', onPress: () => setApiKey('') },
+              ])
+            }
+          />
+        }
+      />
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView
           ref={scrollRef}
           style={s.chat}
@@ -175,37 +170,40 @@ export default function AIScreen() {
         >
           {messages.length === 0 && (
             <View style={s.welcome}>
-              <View style={s.welcomeIcon}>
+              <View style={s.disc}>
                 <Ionicons name="sparkles" size={24} color={T.accent} />
               </View>
-              <Text style={s.welcomeTitle}>Ask me anything</Text>
-              <Text style={s.welcomeSub}>
-                I know your sales, debts, and inventory. Ask about your business performance.
-              </Text>
+              <Txt variant="heading" align="center" style={s.centered}>Ask me anything</Txt>
+              <Txt variant="meta" align="center" style={[s.centered, s.welcomeBody]}>
+                I can read your sales, debts and stock. Try one of these:
+              </Txt>
               <View style={s.quickWrap}>
                 {QUICK_PROMPTS.map((p) => (
-                  <TouchableOpacity key={p} style={s.quickBtn} onPress={() => send(p)}>
-                    <Text style={s.quickBtnText}>{p}</Text>
-                  </TouchableOpacity>
+                  <Card key={p} onPress={() => send(p)} style={s.quick}>
+                    <Txt variant="bodyStrong" style={s.quickText}>{p}</Txt>
+                    <Ionicons name="arrow-forward" size={16} color={T.accent} />
+                  </Card>
                 ))}
               </View>
             </View>
           )}
 
-          {messages.map((m, i) => (
-            <View key={i} style={[s.bubble, m.role === 'user' ? s.bubbleUser : s.bubbleAI]}>
-              {m.role === 'assistant' && (
-                <Ionicons name="sparkles" size={12} color={T.accent} style={s.aiBadge} />
-              )}
-              <Text style={[s.bubbleText, m.role === 'user' ? s.bubbleTextUser : s.bubbleTextAI]}>
-                {m.content}
-              </Text>
-            </View>
-          ))}
+          {messages.map((m, i) =>
+            m.role === 'user' ? (
+              <View key={i} style={[s.bubble, s.bubbleUser]}>
+                <Txt style={s.userText}>{m.content}</Txt>
+              </View>
+            ) : (
+              <View key={i} style={[s.bubble, s.bubbleAI]}>
+                <Ionicons name="sparkles" size={13} color={T.accent} style={s.aiMark} />
+                <Txt style={s.aiText}>{m.content}</Txt>
+              </View>
+            )
+          )}
 
           {loading && (
             <View style={[s.bubble, s.bubbleAI]}>
-              <Ionicons name="sparkles" size={12} color={T.accent} style={s.aiBadge} />
+              <Ionicons name="sparkles" size={13} color={T.accent} style={s.aiMark} />
               <ActivityIndicator size="small" color={T.accent} style={{ paddingHorizontal: 8 }} />
             </View>
           )}
@@ -214,159 +212,94 @@ export default function AIScreen() {
         <View style={s.inputBar}>
           <TextInput
             style={s.input}
-            placeholder="Ask about your business..."
+            placeholder="Ask about your business…"
             placeholderTextColor={T.faint}
+            selectionColor={T.accent}
             value={input}
             onChangeText={setInput}
             multiline
             returnKeyType="send"
             onSubmitEditing={() => send(input)}
           />
-          <TouchableOpacity
-            style={[s.sendBtn, (!input.trim() || loading) && s.sendBtnDisabled]}
+          <IconButton
+            icon="arrow-up"
+            variant="primary"
+            size={42}
             onPress={() => send(input)}
             disabled={!input.trim() || loading}
-          >
-            <Ionicons name="arrow-up" size={18} color="#fff" />
-          </TouchableOpacity>
+            accessibilityLabel="Send"
+          />
         </View>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </Screen>
   )
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: T.bg },
+  // Centered text stretches to the column and centres itself — a text node
+  // sized to its own content can clip on Android when the custom face
+  // measures narrower than it paints.
+  centered: { alignSelf: 'stretch' },
+  disc: {
+    width: 52, height: 52, borderRadius: 26,
+    backgroundColor: T.accentLight,
+    alignItems: 'center', justifyContent: 'center',
+  },
 
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: T.border,
-  },
-  headerTitle: { flex: 1, fontSize: 18, fontWeight: '800', color: T.text },
-
-  setupWrap: { flex: 1, justifyContent: 'center', padding: 24 },
-  setupCard: {
-    backgroundColor: T.surface,
-    borderRadius: 20,
-    padding: 28,
-    alignItems: 'center',
-    gap: 14,
-    borderWidth: 1,
-    borderColor: T.border,
-  },
-  setupIcon: { fontSize: 36, color: T.accent },
-  setupTitle: { fontSize: 20, fontWeight: '800', color: T.text },
-  setupSub: { fontSize: 13, color: T.muted, textAlign: 'center', lineHeight: 20 },
-  setupInput: {
-    width: '100%',
-    borderWidth: 1.5,
-    borderColor: T.border,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 14,
-    color: T.text,
-    backgroundColor: T.bg,
-    fontFamily: FONT.mono,
-  },
-  setupBtn: {
-    backgroundColor: T.accent,
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 32,
-    width: '100%',
-    alignItems: 'center',
-  },
-  setupBtnDisabled: { opacity: 0.4 },
-  setupBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  setupHint: { fontSize: 11, color: T.faint, textAlign: 'center' },
+  setupWrap: { flex: 1, justifyContent: 'center', padding: SP.xl },
+  setupCard: { alignItems: 'center', gap: SP.md, padding: SP.xxl },
+  setupBody: { lineHeight: 18, paddingHorizontal: SP.md },
+  setupInput: { alignSelf: 'stretch', marginTop: SP.xs },
+  setupBtn: { alignSelf: 'stretch' },
 
   chat: { flex: 1 },
-  chatContent: { padding: 16, gap: 10, paddingBottom: 8 },
+  chatContent: { paddingHorizontal: SP.xl, paddingBottom: SP.sm, gap: SP.sm },
 
-  welcome: { alignItems: 'center', paddingVertical: 28, gap: 10 },
-  welcomeIcon: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: T.accentLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  welcomeTitle: { fontSize: 18, fontWeight: '800', color: T.text },
-  welcomeSub: {
-    fontSize: 13,
-    color: T.muted,
-    textAlign: 'center',
-    lineHeight: 20,
-    paddingHorizontal: 16,
-  },
-  quickWrap: { width: '100%', gap: 8, marginTop: 6 },
-  quickBtn: {
-    backgroundColor: T.surface,
-    borderWidth: 1,
-    borderColor: T.border,
-    borderRadius: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-  },
-  quickBtnText: { fontSize: 13, color: T.text, fontWeight: '500' },
+  welcome: { alignItems: 'center', paddingVertical: SP.xl, gap: SP.sm },
+  welcomeBody: { paddingHorizontal: SP.xl },
+  quickWrap: { alignSelf: 'stretch', gap: SP.sm, marginTop: SP.sm },
+  quick: { flexDirection: 'row', alignItems: 'center', gap: SP.sm, paddingVertical: 13, paddingHorizontal: 14 },
+  quickText: { flex: 1 },
 
-  bubble: { maxWidth: '85%', borderRadius: 16, padding: 12 },
-  bubbleUser: {
-    alignSelf: 'flex-end',
-    backgroundColor: T.accent,
-    borderBottomRightRadius: 4,
-  },
+  bubble: { maxWidth: '86%', borderRadius: R.xl, paddingVertical: 10, paddingHorizontal: 14 },
+  bubbleUser: { alignSelf: 'flex-end', backgroundColor: T.accent, borderBottomRightRadius: 6 },
   bubbleAI: {
     alignSelf: 'flex-start',
     backgroundColor: T.surface,
     borderWidth: 1,
     borderColor: T.border,
-    borderBottomLeftRadius: 4,
+    borderBottomLeftRadius: 6,
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 8,
+    gap: SP.sm,
   },
-  aiBadge: { marginTop: 2, flexShrink: 0 },
-  bubbleText: { fontSize: 14, lineHeight: 20, flex: 1 },
-  bubbleTextUser: { color: '#fff' },
-  bubbleTextAI: { color: T.text },
+  aiMark: { marginTop: 3 },
+  userText: { color: T.white, flexShrink: 1 },
+  aiText: { flex: 1 },
 
   inputBar: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: 10,
-    padding: 12,
-    paddingBottom: 16,
-    backgroundColor: T.bg,
+    gap: SP.sm,
+    paddingHorizontal: SP.md,
+    paddingTop: SP.sm,
+    paddingBottom: SP.md,
+    backgroundColor: T.surface,
     borderTopWidth: 1,
     borderTopColor: T.border,
   },
   input: {
     flex: 1,
-    backgroundColor: T.surface,
-    borderWidth: 1.5,
-    borderColor: T.border,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    fontFamily: FONT.sans,
     fontSize: 14,
     color: T.text,
-    maxHeight: 100,
+    backgroundColor: T.bg,
+    borderWidth: 1,
+    borderColor: T.borderStrong,
+    borderRadius: R.xl,
+    paddingHorizontal: 14,
+    paddingTop: 11,
+    paddingBottom: 11,
+    maxHeight: 110,
   },
-  sendBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: T.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sendBtnDisabled: { opacity: 0.4 },
 })

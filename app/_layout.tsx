@@ -1,6 +1,15 @@
 import { useEffect, useState } from 'react'
 import { Stack } from 'expo-router'
 import * as SplashScreen from 'expo-splash-screen'
+import { useFonts } from 'expo-font'
+import { Lora_500Medium, Lora_600SemiBold, Lora_500Medium_Italic } from '@expo-google-fonts/lora'
+import {
+  InstrumentSans_400Regular,
+  InstrumentSans_500Medium,
+  InstrumentSans_600SemiBold,
+  InstrumentSans_700Bold,
+} from '@expo-google-fonts/instrument-sans'
+import { JetBrainsMono_500Medium, JetBrainsMono_700Bold } from '@expo-google-fonts/jetbrains-mono'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { supabase } from '@/lib/supabase'
 import { setupNotifications } from '@/lib/notifications'
@@ -10,7 +19,23 @@ SplashScreen.preventAutoHideAsync()
 
 export default function RootLayout() {
   const setSession = useStore((s) => s.setSession)
-  const [ready, setReady] = useState(false)
+  const [sessionReady, setSessionReady] = useState(false)
+
+  // Face names must match constants/theme.ts FONT. If loading fails the app
+  // still renders — RN falls back to the system font per style.
+  const [fontsLoaded, fontError] = useFonts({
+    Lora_500Medium,
+    Lora_600SemiBold,
+    Lora_500Medium_Italic,
+    InstrumentSans_400Regular,
+    InstrumentSans_500Medium,
+    InstrumentSans_600SemiBold,
+    InstrumentSans_700Bold,
+    JetBrainsMono_500Medium,
+    JetBrainsMono_700Bold,
+  })
+  const fontsReady = fontsLoaded || !!fontError
+  const ready = sessionReady && fontsReady
 
   useEffect(() => {
     // Set up notification permissions + Android channel (fire-and-forget)
@@ -19,8 +44,7 @@ export default function RootLayout() {
     // Restore existing session on mount
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
-      setReady(true)
-      SplashScreen.hideAsync()
+      setSessionReady(true)
     })
 
     // Keep session in sync
@@ -31,7 +55,12 @@ export default function RootLayout() {
     return () => subscription.unsubscribe()
   }, [])
 
-  // Hold render until session is known — prevents the null→redirect→redirect flash
+  useEffect(() => {
+    if (ready) SplashScreen.hideAsync()
+  }, [ready])
+
+  // Hold render until session and fonts are known — prevents the
+  // null→redirect→redirect flash and a system-font flash on first paint
   if (!ready) return null
 
   return (
