@@ -40,7 +40,13 @@ export const useStore = create<AppStore>()(
       setSession: (session) => set({ session }),
 
       activeBusiness: null,
-      setActiveBusiness: (activeBusiness) => set({ activeBusiness }),
+      // Cached rows belong to whichever business was active when they were
+      // fetched, so switching (or signing out, which sets null) must drop them
+      // — otherwise the next business shows the previous one's data until the
+      // TTL expires. Done here rather than at the call sites so it can't be
+      // forgotten by a future one.
+      setActiveBusiness: (activeBusiness) =>
+        set({ activeBusiness, salesCache: null, debtsCache: null, inventoryCache: null }),
 
       businesses: [],
       setBusinesses: (businesses) => set({ businesses }),

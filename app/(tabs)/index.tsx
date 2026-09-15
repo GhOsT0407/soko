@@ -73,6 +73,9 @@ export default function DashboardScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true)
+    // Drop the shared cache too, or the other tabs keep serving the stale rows
+    // this pull-to-refresh was meant to replace.
+    useStore.getState().clearCache()
     await load()
     setRefreshing(false)
   }, [load])
