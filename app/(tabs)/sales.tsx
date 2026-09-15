@@ -1,27 +1,24 @@
 import { useState, useCallback } from 'react'
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  TextInput,
-  RefreshControl,
-  Alert,
-  Share,
-} from 'react-native'
-import { router } from 'expo-router'
-import { SafeAreaView } from 'react-native-safe-area-context'
+import { View, StyleSheet, ScrollView, Pressable, RefreshControl, Alert, Share } from 'react-native'
+import { router, useFocusEffect } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
-import { useFocusEffect } from 'expo-router'
-import { T, FONT } from '@/constants/theme'
+import { T, SP, FONT } from '@/constants/theme'
 import { supabase } from '@/lib/supabase'
+import { naira, whenLabel, plural } from '@/lib/format'
 import { useStore } from '@/store'
 import type { Sale } from '@/types'
+import {
+  Screen, Txt, Card, IconButton, Input, Segmented, ListRow, EmptyState, ScreenHeader,
+} from '@/components'
 
 type Filter = 'today' | 'week' | 'month' | 'all'
 
-function fmt(n: number) { return '₦' + n.toLocaleString() }
+const FILTERS: { key: Filter; label: string }[] = [
+  { key: 'today', label: 'Today' },
+  { key: 'week', label: 'Week' },
+  { key: 'month', label: 'Month' },
+  { key: 'all', label: 'All' },
+]
 
 function inRange(dateStr: string, filter: Filter) {
   const d = new Date(dateStr)
@@ -115,238 +112,100 @@ export default function SalesScreen() {
     ])
   }
 
-  const FILTERS: { key: Filter; label: string }[] = [
-    { key: 'today', label: 'Today' },
-    { key: 'week', label: 'Week' },
-    { key: 'month', label: 'Month' },
-    { key: 'all', label: 'All' },
-  ]
+  const emptyBody =
+    query ? 'Nothing matches that search.'
+    : filter === 'today' ? 'No sales recorded today.'
+    : 'Try a wider period.'
 
   return (
-    <SafeAreaView style={s.container} edges={['top']}>
-      {/* Header */}
-      <View style={s.header}>
-        <Text style={s.title}>Sales</Text>
-        <View style={s.headerRight}>
-          <TouchableOpacity style={s.iconBtn} onPress={handleExport} disabled={filtered.length === 0}>
-            <Ionicons name="share-outline" size={18} color={filtered.length > 0 ? T.textSub : T.faint} />
-          </TouchableOpacity>
-          <TouchableOpacity style={s.addBtn} onPress={() => router.push('/sale/new')}>
-            <Ionicons name="add" size={20} color="#fff" />
-          </TouchableOpacity>
-        </View>
-      </View>
+    <Screen>
+      <ScreenHeader
+        title="Sales"
+        subtitle={sales.length ? `${plural(sales.length, 'sale')} in the book` : undefined}
+        right={
+          <>
+            <IconButton icon="share-outline" onPress={handleExport} disabled={filtered.length === 0} accessibilityLabel="Export as CSV" />
+            <IconButton icon="add" variant="primary" onPress={() => router.push('/sale/new')} accessibilityLabel="Record sale" />
+          </>
+        }
+      />
 
-      {/* Summary */}
-      <View style={s.summary}>
-        <View style={s.summaryItem}>
-          <Text style={s.summaryLabel}>TOTAL</Text>
-          <Text style={s.summaryAmount}>{fmt(total)}</Text>
-        </View>
-        <View style={s.summaryDivider} />
-        <View style={s.summaryItem}>
-          <Text style={s.summaryLabel}>CASH</Text>
-          <Text style={[s.summaryAmount, { color: T.green }]}>{fmt(cashTotal)}</Text>
-        </View>
-        <View style={s.summaryDivider} />
-        <View style={s.summaryItem}>
-          <Text style={s.summaryLabel}>DEBT</Text>
-          <Text style={[s.summaryAmount, { color: T.warning }]}>{fmt(total - cashTotal)}</Text>
-        </View>
-      </View>
-
-      {/* Filters */}
-      <View style={s.filterRow}>
-        {FILTERS.map((f) => (
-          <TouchableOpacity
-            key={f.key}
-            style={[s.filterBtn, filter === f.key && s.filterBtnActive]}
-            onPress={() => setFilter(f.key)}
-          >
-            <Text style={[s.filterText, filter === f.key && s.filterTextActive]}>
-              {f.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {/* Search */}
-      <View style={s.searchWrap}>
-        <Ionicons name="search-outline" size={16} color={T.faint} style={s.searchIcon} />
-        <TextInput
-          style={s.search}
-          placeholder="Search item or customer..."
-          placeholderTextColor={T.faint}
-          value={query}
-          onChangeText={setQuery}
-        />
-      </View>
-
-      {/* List */}
       <ScrollView
+        contentContainerStyle={s.content}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={T.accent} />}
       >
+        <Segmented options={FILTERS} value={filter} onChange={setFilter} />
+
+        {/* Period totals */}
+        <Card style={s.totals}>
+          <View style={s.totalMain}>
+            <Txt variant="label">Total</Txt>
+            <Txt variant="amountLg">{naira(total)}</Txt>
+          </View>
+          <View style={s.totalSplit}>
+            <View style={s.totalCol}>
+              <Txt variant="label">Cash</Txt>
+              <Txt variant="amount" color={T.green}>{naira(cashTotal)}</Txt>
+            </View>
+            <View style={s.totalCol}>
+              <Txt variant="label">Credit</Txt>
+              <Txt variant="amount" color={T.warning}>{naira(total - cashTotal)}</Txt>
+            </View>
+          </View>
+        </Card>
+
+        <Input
+          icon="search-outline"
+          placeholder="Search item or customer"
+          value={query}
+          onChangeText={setQuery}
+          autoCorrect={false}
+          returnKeyType="search"
+        />
+
         {filtered.length === 0 ? (
-          <View style={s.empty}>
-            <Text style={s.emptyTitle}>No sales found</Text>
-            <Text style={s.emptyText}>
-              {filter === 'today' ? 'No sales recorded today.' : 'Try changing the filter.'}
-            </Text>
-          </View>
+          <Card padded={false}>
+            <EmptyState icon="receipt-outline" title="No sales found" body={emptyBody} />
+          </Card>
         ) : (
-          <View style={s.list}>
+          <Card padded={false}>
             {filtered.map((sale, idx) => (
-              <View
+              <ListRow
                 key={sale.id}
-                style={[s.row, idx === filtered.length - 1 && { borderBottomWidth: 0 }]}
-              >
-                <View style={s.rowLeft}>
-                  <Text style={s.rowItem} numberOfLines={1}>{sale.item}</Text>
-                  <Text style={s.rowMeta}>
-                    {sale.category}
-                    {sale.customer ? ` · ${sale.customer}` : ''}
-                    {' · '}
-                    {new Date(sale.created_at).toLocaleDateString('en-NG', {
-                      day: 'numeric', month: 'short',
-                    })}
-                  </Text>
-                </View>
-                <View style={s.rowRight}>
-                  <Text style={[s.rowAmount, sale.is_debt && { color: T.warning }]}>
-                    {fmt(sale.total)}
-                  </Text>
-                  {sale.is_debt && (
-                    <Text style={s.debtTag}>DEBT</Text>
-                  )}
-                  <TouchableOpacity onPress={() => handleDelete(sale.id)} hitSlop={8}>
-                    <Ionicons name="trash-outline" size={15} color={T.faint} />
-                  </TouchableOpacity>
-                </View>
-              </View>
+                when={whenLabel(sale.created_at)}
+                title={sale.item}
+                meta={
+                  <Txt variant="meta" numberOfLines={1}>
+                    {sale.category}{sale.customer ? ` · ${sale.customer}` : ''}
+                    {sale.is_debt ? <Txt style={s.onCredit}> · on credit</Txt> : null}
+                  </Txt>
+                }
+                amount={naira(sale.total)}
+                amountColor={sale.is_debt ? T.warning : undefined}
+                trailing={
+                  <Pressable onPress={() => handleDelete(sale.id)} hitSlop={10} accessibilityLabel="Delete sale" accessibilityRole="button">
+                    <Ionicons name="trash-outline" size={16} color={T.faint} />
+                  </Pressable>
+                }
+                last={idx === filtered.length - 1}
+              />
             ))}
-          </View>
+          </Card>
         )}
-        <View style={{ height: 24 }} />
       </ScrollView>
-    </SafeAreaView>
+    </Screen>
   )
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: T.bg },
+  content: { paddingHorizontal: SP.xl, gap: SP.md, paddingBottom: SP.xxl },
 
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: T.border,
-  },
-  title: { fontSize: 22, fontWeight: '800', color: T.text, letterSpacing: -0.5 },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  iconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: T.surface,
-    borderWidth: 1,
-    borderColor: T.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  addBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: T.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  totals: { flexDirection: 'row', alignItems: 'center', gap: SP.lg, padding: 14 },
+  totalMain: { flex: 1.2, gap: 3 },
+  totalSplit: { flex: 1.6, flexDirection: 'row', gap: SP.md, borderLeftWidth: 1, borderLeftColor: T.border, paddingLeft: SP.lg },
+  totalCol: { flex: 1, gap: 3 },
 
-  summary: {
-    flexDirection: 'row',
-    paddingVertical: 14,
-    paddingHorizontal: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: T.border,
-  },
-  summaryItem: { flex: 1, alignItems: 'center', gap: 3 },
-  summaryDivider: { width: 1, backgroundColor: T.border },
-  summaryLabel: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: T.faint,
-    letterSpacing: 1.5,
-    fontFamily: FONT.mono,
-  },
-  summaryAmount: { fontSize: 17, fontWeight: '800', color: T.text },
-
-  filterRow: {
-    flexDirection: 'row',
-    gap: 8,
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-  },
-  filterBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 20,
-    backgroundColor: T.surface,
-    borderWidth: 1,
-    borderColor: T.border,
-  },
-  filterBtnActive: { backgroundColor: T.accent, borderColor: T.accent },
-  filterText: { fontSize: 13, fontWeight: '600', color: T.muted },
-  filterTextActive: { color: '#fff' },
-
-  searchWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: 20,
-    marginBottom: 12,
-    backgroundColor: T.surface,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: T.border,
-    paddingHorizontal: 12,
-  },
-  searchIcon: { marginRight: 8 },
-  search: { flex: 1, fontSize: 14, color: T.text, paddingVertical: 10 },
-
-  empty: { padding: 40, alignItems: 'center', gap: 6 },
-  emptyTitle: { fontSize: 15, fontWeight: '700', color: T.text },
-  emptyText: { fontSize: 13, color: T.muted, textAlign: 'center' },
-
-  list: {
-    marginHorizontal: 20,
-    backgroundColor: T.surface,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: T.border,
-    overflow: 'hidden',
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 13,
-    borderBottomWidth: 1,
-    borderBottomColor: T.border,
-    gap: 10,
-  },
-  rowLeft: { flex: 1, gap: 3 },
-  rowItem: { fontSize: 14, fontWeight: '600', color: T.text },
-  rowMeta: { fontSize: 11, color: T.muted },
-  rowRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  rowAmount: { fontSize: 15, fontWeight: '800', color: T.text },
-  debtTag: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: T.warning,
-    fontFamily: FONT.mono,
-    letterSpacing: 0.5,
-  },
+  onCredit: { fontFamily: FONT.serifItalic, fontSize: 12, lineHeight: 16, color: T.error },
 })
