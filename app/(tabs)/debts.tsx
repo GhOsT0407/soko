@@ -4,11 +4,11 @@ import { router, useFocusEffect } from 'expo-router'
 import { T, SP } from '@/constants/theme'
 import { supabase } from '@/lib/supabase'
 import { naira, daysSince, plural } from '@/lib/format'
+import { balanceOf, isOverdue, isPartial, statusOf, whatsappUrl } from '@/lib/debts'
 import { useStore } from '@/store'
 import type { Debt } from '@/types'
 import {
   Screen, Txt, Card, IconButton, Badge, Segmented, ListRow, EmptyState, ScreenHeader, Avatar,
-  type BadgeTone,
 } from '@/components'
 
 type Filter = 'all' | 'overdue' | 'partial' | 'pending'
@@ -20,20 +20,9 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: 'pending', label: 'Pending' },
 ]
 
-function balance(d: Debt) { return d.amount - d.amount_paid }
-
 function sendWhatsApp(debt: Debt) {
-  const bal = debt.amount - debt.amount_paid
-  const msg = `Hello ${debt.customer}, you still owe *₦${bal.toLocaleString()}*${debt.description ? ` for ${debt.description}` : ''}. Please pay when convenient. Thank you! 🙏`
-  const raw = (debt.phone || '').replace(/\D/g, '')
-  const phone = raw.startsWith('0') ? '234' + raw.slice(1) : raw
-  Linking.openURL(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`)
-}
-
-function statusOf(d: Debt): { label: string; tone: BadgeTone } {
-  if (d.amount_paid > 0 && d.amount_paid < d.amount) return { label: 'Partial', tone: 'warn' }
-  if (daysSince(d.created_at) > 7) return { label: 'Overdue', tone: 'bad' }
-  return { label: 'Pending', tone: 'neutral' }
+  const msg = `Hello ${debt.customer}, you still owe *₦${balanceOf(debt).toLocaleString()}*${debt.description ? ` for ${debt.description}` : ''}. Please pay when convenient. Thank you! 🙏`
+  Linking.openURL(whatsappUrl(debt.phone, msg))
 }
 
 function ago(dateStr: string) {
@@ -82,14 +71,14 @@ export default function DebtsScreen() {
   }
 
   const filtered = debts.filter((d) => {
-    if (filter === 'overdue') return daysSince(d.created_at) > 7 && d.amount_paid === 0
-    if (filter === 'partial') return d.amount_paid > 0 && d.amount_paid < d.amount
-    if (filter === 'pending') return d.amount_paid === 0 && daysSince(d.created_at) <= 7
+    if (filter === 'overdue') return isOverdue(d) && !isPartial(d)
+    if (filter === 'partial') return isPartial(d)
+    if (filter === 'pending') return !isPartial(d) && !isOverdue(d)
     return true
   })
 
-  const totalOwed = debts.reduce((sum, d) => sum + balance(d), 0)
-  const overdueCount = debts.filter((d) => daysSince(d.created_at) > 7 && d.amount_paid === 0).length
+  const totalOwed = debts.reduce((sum, d) => sum + balanceOf(d), 0)
+  const overdueCount = debts.filter((d) => isOverdue(d) && !isPartial(d)).length
 
   return (
     <Screen>
@@ -136,7 +125,7 @@ export default function DebtsScreen() {
                   title={debt.customer}
                   titleRight={<Badge label={st.label} tone={st.tone} />}
                   meta={[debt.description, ago(debt.created_at)].filter(Boolean).join(' · ')}
-                  amount={naira(balance(debt))}
+                  amount={naira(balanceOf(debt))}
                   sub={debt.amount_paid > 0 ? <Txt style={s.paid}>paid {naira(debt.amount_paid)}</Txt> : undefined}
                   trailing={
                     debt.phone ? (

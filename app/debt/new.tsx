@@ -1,21 +1,22 @@
 import { useState } from 'react'
-import {
-  View,
-  Text,
-  StyleSheet,
-  TextInput,
-  TouchableOpacity,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
-  Alert,
-} from 'react-native'
+import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Alert } from 'react-native'
 import { router } from 'expo-router'
-import { SafeAreaView } from 'react-native-safe-area-context'
-import { Ionicons } from '@expo/vector-icons'
-import { T, FONT } from '@/constants/theme'
+import { SP } from '@/constants/theme'
+import { naira } from '@/lib/format'
+import { dueDateFromDays } from '@/lib/debts'
 import { supabase } from '@/lib/supabase'
 import { useStore } from '@/store'
+import { Screen, Txt, Button, Input, Chip, ModalHeader, ModalFooter } from '@/components'
+
+// Terms the trader can pick with one tap; `custom` reveals a days field.
+type Terms = 'none' | '7' | '14' | '30' | 'custom'
+const TERMS: { key: Terms; label: string }[] = [
+  { key: 'none', label: 'No date' },
+  { key: '7', label: '1 week' },
+  { key: '14', label: '2 weeks' },
+  { key: '30', label: '1 month' },
+  { key: 'custom', label: 'Other' },
+]
 
 export default function NewDebtScreen() {
   const activeBusiness = useStore((s) => s.activeBusiness)
@@ -25,9 +26,20 @@ export default function NewDebtScreen() {
   const [phone, setPhone] = useState('')
   const [amount, setAmount] = useState('')
   const [description, setDescription] = useState('')
+  const [terms, setTerms] = useState<Terms>('none')
+  const [customDays, setCustomDays] = useState('')
   const [saving, setSaving] = useState(false)
 
   const canSave = customer.trim().length > 0 && parseFloat(amount) > 0
+
+  const dueDays =
+    terms === 'none' ? null
+    : terms === 'custom' ? (parseInt(customDays) > 0 ? parseInt(customDays) : null)
+    : parseInt(terms)
+  const dueDate = dueDays != null ? dueDateFromDays(dueDays) : null
+  const dueText = dueDate
+    ? new Date(dueDate + 'T00:00:00').toLocaleDateString('en-NG', { weekday: 'short', day: 'numeric', month: 'short' })
+    : 'Counts as overdue after a week'
 
   async function handleSave() {
     if (!canSave || !activeBusiness || !session) return
@@ -41,6 +53,7 @@ export default function NewDebtScreen() {
         amount: parseFloat(amount),
         amount_paid: 0,
         description: description.trim(),
+        due_date: dueDate,
       })
       if (error) throw error
       useStore.getState().clearCache()
@@ -53,124 +66,80 @@ export default function NewDebtScreen() {
   }
 
   return (
-    <SafeAreaView style={s.container}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
-        <View style={s.header}>
-          <TouchableOpacity onPress={() => router.back()}>
-            <Ionicons name="close" size={22} color={T.muted} />
-          </TouchableOpacity>
-          <Text style={s.headerTitle}>Add Debt</Text>
-          <View style={{ width: 22 }} />
-        </View>
+    <Screen>
+      <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ModalHeader title="Add debt" />
 
-        <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
-          <View style={s.field}>
-            <Text style={s.label}>CUSTOMER NAME</Text>
-            <TextInput
-              style={[s.input, customer.length > 0 && s.inputActive]}
-              value={customer}
-              onChangeText={setCustomer}
-              placeholder="e.g. Iya Tunde"
-              placeholderTextColor={T.faint}
-              autoFocus
-            />
-          </View>
+        <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <Input
+            label="Customer name"
+            value={customer}
+            onChangeText={setCustomer}
+            placeholder="e.g. Iya Tunde"
+            autoFocus
+          />
+          <Input
+            label="Phone (optional)"
+            mono
+            value={phone}
+            onChangeText={setPhone}
+            placeholder="08012345678"
+            keyboardType="phone-pad"
+            hint="Lets you send a WhatsApp reminder later"
+          />
+          <Input
+            label="Amount owed (₦)"
+            mono large
+            value={amount}
+            onChangeText={setAmount}
+            placeholder="0"
+            keyboardType="numeric"
+          />
+          <Input
+            label="What for (optional)"
+            value={description}
+            onChangeText={setDescription}
+            placeholder="What was sold / what for?"
+          />
 
-          <View style={s.field}>
-            <Text style={s.label}>PHONE (OPTIONAL)</Text>
-            <TextInput
-              style={[s.input, phone.length > 0 && s.inputActive]}
-              value={phone}
-              onChangeText={setPhone}
-              placeholder="08012345678"
-              placeholderTextColor={T.faint}
-              keyboardType="phone-pad"
-            />
-          </View>
-
-          <View style={s.field}>
-            <Text style={s.label}>AMOUNT OWED (₦)</Text>
-            <TextInput
-              style={[s.input, amount.length > 0 && s.inputActive]}
-              value={amount}
-              onChangeText={setAmount}
-              placeholder="0"
-              placeholderTextColor={T.faint}
-              keyboardType="numeric"
-            />
-          </View>
-
-          <View style={s.field}>
-            <Text style={s.label}>DESCRIPTION (OPTIONAL)</Text>
-            <TextInput
-              style={[s.input, description.length > 0 && s.inputActive]}
-              value={description}
-              onChangeText={setDescription}
-              placeholder="What was sold / what for?"
-              placeholderTextColor={T.faint}
-            />
+          <View style={s.gapSm}>
+            <Txt variant="label">Due</Txt>
+            <View style={s.chips}>
+              {TERMS.map((t) => (
+                <Chip key={t.key} label={t.label} selected={terms === t.key} onPress={() => setTerms(t.key)} />
+              ))}
+            </View>
+            {terms === 'custom' ? (
+              <Input
+                mono
+                keyboardType="numeric"
+                value={customDays}
+                onChangeText={setCustomDays}
+                placeholder="Days from today, e.g. 10"
+              />
+            ) : null}
+            <Txt variant="meta">{dueText}</Txt>
           </View>
         </ScrollView>
 
-        <View style={s.footer}>
-          <TouchableOpacity
-            style={[s.saveBtn, (!canSave || saving) && s.saveBtnDisabled]}
+        <ModalFooter>
+          <Button
+            grow
+            size="lg"
             onPress={handleSave}
-            disabled={!canSave || saving}
-            activeOpacity={0.85}
-          >
-            <Text style={s.saveBtnText}>
-              {saving ? 'Saving...' : canSave ? `Add Debt — ₦${parseFloat(amount || '0').toLocaleString()}` : 'Enter customer & amount'}
-            </Text>
-          </TouchableOpacity>
-        </View>
+            disabled={!canSave}
+            loading={saving}
+            label={canSave ? `Add debt  ${naira(parseFloat(amount))}` : 'Enter customer & amount'}
+          />
+        </ModalFooter>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </Screen>
   )
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: T.bg },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: T.border,
-  },
-  headerTitle: { fontSize: 17, fontWeight: '700', color: T.text },
-  scroll: { padding: 20, gap: 18 },
-  field: { gap: 7 },
-  label: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: T.muted,
-    letterSpacing: 1.5,
-    fontFamily: FONT.mono,
-  },
-  input: {
-    backgroundColor: T.surface,
-    borderWidth: 1.5,
-    borderColor: T.border,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
-    fontSize: 15,
-    color: T.text,
-  },
-  inputActive: { borderColor: T.accent },
-  footer: { padding: 16, paddingBottom: 24, borderTopWidth: 1, borderTopColor: T.border },
-  saveBtn: {
-    backgroundColor: T.accent,
-    borderRadius: 14,
-    paddingVertical: 17,
-    alignItems: 'center',
-  },
-  saveBtnDisabled: { backgroundColor: T.border },
-  saveBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  flex: { flex: 1 },
+  scroll: { padding: SP.xl, gap: SP.xl },
+  gapSm: { gap: SP.sm },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: SP.sm },
 })

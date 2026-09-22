@@ -6,7 +6,8 @@ import { T, SP, FONT } from '@/constants/theme'
 import { BUSINESS_TYPES, TAILORED, type BusinessTypeId } from '@/constants/data'
 import { supabase } from '@/lib/supabase'
 import { scheduleDebtReminder } from '@/lib/notifications'
-import { naira, daysSince, whenLabel, plural } from '@/lib/format'
+import { naira, whenLabel, plural } from '@/lib/format'
+import { isOverdue } from '@/lib/debts'
 import { useStore } from '@/store'
 import type { Sale, Debt, InventoryItem } from '@/types'
 import {
@@ -102,7 +103,7 @@ export default function DashboardScreen() {
   useEffect(() => {
     if (debts.length === 0 && !scheduledRef.current) return
     scheduledRef.current = true
-    const overdue = debts.filter((d) => daysSince(d.created_at) > 7)
+    const overdue = debts.filter(isOverdue)
     const amount = overdue.reduce((sum, d) => sum + (d.amount - d.amount_paid), 0)
     scheduleDebtReminder(overdue.length, amount).catch(() => {})
   }, [debts])
@@ -141,7 +142,7 @@ export default function DashboardScreen() {
   const todaySales = sales.filter((s) => between(s, today0, tomorrow0))
   const todayRevenue = todaySales.reduce((sum, s) => sum + s.total, 0)
 
-  const overdueDebts = debts.filter((d) => daysSince(d.created_at) > 7)
+  const overdueDebts = debts.filter(isOverdue)
   const totalOwed = debts.reduce((sum, d) => sum + (d.amount - d.amount_paid), 0)
   const lowStock = inventory.filter((i) => i.qty <= i.low_stock_threshold)
   const recentSales = sales.slice(0, 5)
