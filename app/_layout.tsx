@@ -14,6 +14,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { supabase } from '@/lib/supabase'
 import { setupNotifications } from '@/lib/notifications'
 import { useStore } from '@/store'
+import { SKIP_AUTH, PREVIEW_BUSINESS } from '@/constants/dev'
 
 SplashScreen.preventAutoHideAsync()
 
@@ -42,7 +43,22 @@ export default function RootLayout() {
     setupNotifications().catch(() => {})
 
     // Restore existing session on mount
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      const store = useStore.getState()
+      if (!session && SKIP_AUTH) {
+        // Dev bypass: a real (anonymous) session if the project allows it,
+        // otherwise a placeholder business so the screens can be previewed.
+        const { data, error } = await supabase.auth.signInAnonymously()
+        if (data.session) {
+          session = data.session
+        } else {
+          console.warn('[dev] anonymous sign-in unavailable, entering preview mode:', error?.message)
+          store.setActiveBusiness(PREVIEW_BUSINESS)
+        }
+      } else if (store.activeBusiness?.id === PREVIEW_BUSINESS.id) {
+        // Left over from a preview run — don't let it shadow a real business.
+        store.setActiveBusiness(null)
+      }
       setSession(session)
       setSessionReady(true)
     })
