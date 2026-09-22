@@ -1,23 +1,22 @@
 import { useState } from 'react'
 import {
   View,
-  Text,
   StyleSheet,
-  TouchableOpacity,
+  Pressable,
   ScrollView,
   Image,
   Alert,
   ActivityIndicator,
-  TextInput,
 } from 'react-native'
 import * as ImagePicker from 'expo-image-picker'
 import { router } from 'expo-router'
-import { SafeAreaView } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
-import { T, FONT } from '@/constants/theme'
+import { T, SP, R } from '@/constants/theme'
+import { plural } from '@/lib/format'
 import { useStore } from '@/store'
 import { supabase } from '@/lib/supabase'
 import { extractSalesFromPhotos, RATE_LIMIT_DELAY_MS, sleep, type ExtractedSale } from '@/services/ai'
+import { Screen, Txt, Card, Button, Input, IconButton, NoteCard, ModalHeader, ModalFooter } from '@/components'
 
 type PhotoAsset = { uri: string; base64: string }
 type ReviewSale = ExtractedSale & { _key: string; _keep: boolean }
@@ -37,6 +36,7 @@ export default function PastSalesScreen() {
   const [photos, setPhotos] = useState<PhotoAsset[]>([])
   const [picking, setPicking] = useState(false)
   const [extracting, setExtracting] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [batchProgress, setBatchProgress] = useState({ done: 0, total: 0 })
   const [reviewed, setReviewed] = useState<ReviewSale[]>([])
 
@@ -51,7 +51,7 @@ export default function PastSalesScreen() {
         quality: 0.7,
         base64: true,
         // No selectionLimit — iOS allows up to 100 per session, Android unlimited.
-        // Users can tap "Add More Photos" repeatedly to accumulate beyond 100.
+        // Users can tap "Add more photos" repeatedly to accumulate beyond 100.
       })
       if (!result.canceled) {
         const fresh = result.assets
@@ -73,7 +73,7 @@ export default function PastSalesScreen() {
 
   async function handleExtract() {
     if (!apiKey) {
-      Alert.alert('No API Key', 'Go to the AI tab and connect your Gemini API key first.')
+      Alert.alert('No API key', 'Go to the Assistant tab and connect your Gemini API key first.')
       return
     }
 
@@ -150,10 +150,11 @@ export default function PastSalesScreen() {
   async function handleSave() {
     const toSave = reviewed.filter((r) => r._keep)
     if (toSave.length === 0) {
-      Alert.alert('Nothing selected', 'Toggle on at least one sale to save.')
+      Alert.alert('Nothing selected', 'Tick at least one sale to save.')
       return
     }
     if (!activeBusiness || !session) return
+    setSaving(true)
     const rows = toSave.map((r) => ({
       business_id: activeBusiness.id,
       user_id: session.user.id,
@@ -168,12 +169,14 @@ export default function PastSalesScreen() {
       created_at: r.date ? new Date(r.date).toISOString() : new Date().toISOString(),
     }))
     const { error } = await supabase.from('sales').insert(rows)
+    setSaving(false)
     if (error) {
       Alert.alert('Error', error.message)
       return
     }
+    useStore.getState().clearCache()
     Alert.alert(
-      `${rows.length} sale${rows.length !== 1 ? 's' : ''} saved`,
+      `${plural(rows.length, 'sale')} saved`,
       'Your past sales have been added to your records.',
       [{ text: 'Done', onPress: () => router.back() }]
     )
@@ -184,330 +187,192 @@ export default function PastSalesScreen() {
   const keptCount = reviewed.filter((r) => r._keep).length
 
   return (
-    <SafeAreaView style={s.container}>
-      {/* Header */}
-      <View style={s.header}>
-        <TouchableOpacity onPress={handleCancel} hitSlop={12} style={s.headerSide}>
-          <Text style={s.cancelBtn}>Cancel</Text>
-        </TouchableOpacity>
-        <View style={s.headerCenter}>
-          <Text style={s.headerTitle}>
-            {step === 'select' ? 'Import Past Sales' : 'Review Extracted Sales'}
-          </Text>
-          <Text style={s.headerSub}>
-            {step === 'select'
-              ? photos.length === 0
-                ? 'Add photos of your records'
-                : `${photos.length} photo${photos.length !== 1 ? 's' : ''} ready`
-              : `${keptCount} of ${reviewed.length} selected`}
-          </Text>
-        </View>
-        <View style={s.headerSide}>
-          {step === 'review' && (
-            <TouchableOpacity onPress={handleSave} hitSlop={12}>
-              <Text style={s.doneBtn}>Save</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-      </View>
+    <Screen>
+      <ModalHeader
+        title={step === 'select' ? 'Import past sales' : 'Check what was read'}
+        onClose={handleCancel}
+      />
 
       {/* ── SELECT STEP ── */}
-      {step === 'select' && (
-        <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
-          {/* Add photos button */}
-          <TouchableOpacity
-            style={[s.addBox, picking && s.addBoxLoading]}
-            onPress={handleAddPhotos}
-            activeOpacity={0.75}
-            disabled={picking || extracting}
-          >
-            {picking ? (
-              <ActivityIndicator color={T.accent} />
-            ) : (
-              <>
-                <Ionicons name="images-outline" size={36} color={T.accent} />
-                <Text style={s.addBoxTitle}>
-                  {photos.length === 0 ? 'Select Photos' : 'Add More Photos'}
-                </Text>
-                <Text style={s.addBoxSub}>
-                  Select as many as you want — tap again to add more batches
-                </Text>
-              </>
-            )}
-          </TouchableOpacity>
+      {step === 'select' ? (
+        <>
+          <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
+            <Txt variant="meta">
+              {photos.length === 0
+                ? 'Photograph your old notebook pages or receipts and the assistant will read the sales off them.'
+                : `${plural(photos.length, 'photo')} ready`}
+            </Txt>
 
-          {/* Photo grid */}
-          {photos.length > 0 && (
-            <View style={s.grid}>
-              {photos.map((p) => (
-                <View key={p.uri} style={s.photoWrap}>
-                  <Image source={{ uri: p.uri }} style={s.photo} resizeMode="cover" />
-                  <TouchableOpacity
-                    style={s.removeBtn}
-                    onPress={() => handleRemovePhoto(p.uri)}
-                    hitSlop={8}
-                  >
-                    <Ionicons name="close" size={13} color="#fff" />
-                  </TouchableOpacity>
-                </View>
-              ))}
-            </View>
-          )}
-
-          {/* AI extract button */}
-          {photos.length > 0 && (
-            <TouchableOpacity
-              style={[s.extractBtn, extracting && s.extractBtnLoading]}
-              onPress={handleExtract}
-              activeOpacity={0.85}
-              disabled={extracting}
+            <Pressable
+              onPress={handleAddPhotos}
+              disabled={picking || extracting}
+              accessibilityRole="button"
+              style={({ pressed }) => [s.drop, pressed && s.pressed]}
             >
-              {extracting ? (
-                <View style={s.extractingRow}>
-                  <ActivityIndicator color="#fff" size="small" />
-                  <Text style={s.extractBtnText}>
-                    {batchProgress.total > 0
-                      ? `Reading batch ${batchProgress.done + 1} of ${batchProgress.total}…`
-                      : 'Preparing…'}
-                  </Text>
-                </View>
+              {picking ? (
+                <ActivityIndicator color={T.accent} />
               ) : (
-                <View style={s.extractingRow}>
-                  <Ionicons name="sparkles" size={18} color="#fff" />
-                  <Text style={s.extractBtnText}>Extract Sales with AI</Text>
-                </View>
+                <>
+                  <Ionicons name="images-outline" size={32} color={T.accent} />
+                  <Txt variant="heading">{photos.length === 0 ? 'Choose photos' : 'Add more photos'}</Txt>
+                  <Txt variant="meta" align="center">Pick as many as you like — tap again to add another batch</Txt>
+                </>
               )}
-            </TouchableOpacity>
-          )}
+            </Pressable>
 
-          {photos.length > 0 && !apiKey && (
-            <View style={s.noKeyBanner}>
-              <Ionicons name="warning-outline" size={14} color={T.warning} />
-              <Text style={s.noKeyText}>
-                No Gemini key connected. Go to the AI tab to add one, then come back.
-              </Text>
-            </View>
-          )}
+            {photos.length > 0 ? (
+              <View style={s.grid}>
+                {photos.map((p) => (
+                  <View key={p.uri} style={s.photoWrap}>
+                    <Image source={{ uri: p.uri }} style={s.photo} resizeMode="cover" />
+                    <IconButton
+                      icon="close"
+                      size={22}
+                      variant="primary"
+                      onPress={() => handleRemovePhoto(p.uri)}
+                      accessibilityLabel="Remove photo"
+                      style={s.remove}
+                    />
+                  </View>
+                ))}
+              </View>
+            ) : null}
 
-          <View style={{ height: 40 }} />
-        </ScrollView>
-      )}
+            {photos.length > 0 && !apiKey ? (
+              <Card tone="tint" style={s.warn}>
+                <Ionicons name="warning-outline" size={16} color={T.warning} />
+                <Txt variant="meta" color={T.warning} style={s.grow}>
+                  No Gemini key connected. Add one on the Assistant tab, then come back.
+                </Txt>
+              </Card>
+            ) : null}
+          </ScrollView>
+
+          {photos.length > 0 ? (
+            <ModalFooter>
+              <Button
+                grow size="lg"
+                icon={extracting ? 'hourglass-outline' : 'sparkles'}
+                onPress={handleExtract}
+                disabled={extracting}
+                label={
+                  !extracting ? 'Read sales with AI'
+                  : batchProgress.total > 0
+                    ? `Reading batch ${Math.min(batchProgress.done + 1, batchProgress.total)} of ${batchProgress.total}…`
+                    : 'Preparing…'
+                }
+              />
+            </ModalFooter>
+          ) : null}
+        </>
+      ) : null}
 
       {/* ── REVIEW STEP ── */}
-      {step === 'review' && (
-        <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
-          <Text style={s.reviewHint}>
-            The AI extracted these sales from your photos. Toggle off any that look wrong, edit fields as needed, then tap Save.
-          </Text>
+      {step === 'review' ? (
+        <>
+          <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+            <NoteCard text="Untick anything that looks wrong and fix the rest before saving." />
 
-          {reviewed.map((r) => (
-            <View key={r._key} style={[s.reviewCard, !r._keep && s.reviewCardDim]}>
-              {/* Toggle */}
-              <TouchableOpacity
-                style={[s.toggle, r._keep && s.toggleOn]}
-                onPress={() => toggleKeep(r._key)}
-              >
-                {r._keep && <Ionicons name="checkmark" size={14} color="#fff" />}
-              </TouchableOpacity>
+            {reviewed.map((r) => (
+              <Card key={r._key} style={[s.review, !r._keep && s.reviewOff]}>
+                <Pressable
+                  onPress={() => toggleKeep(r._key)}
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: r._keep }}
+                  hitSlop={8}
+                  style={[s.tick, r._keep && s.tickOn]}
+                >
+                  {r._keep ? <Ionicons name="checkmark" size={14} color={T.white} /> : null}
+                </Pressable>
 
-              <View style={s.reviewFields}>
-                <View style={s.reviewRow}>
-                  <Text style={s.reviewLabel}>ITEM</Text>
-                  <TextInput
-                    style={s.reviewInput}
+                <View style={s.fields}>
+                  <Input
+                    label="Item"
                     value={r.item}
                     onChangeText={(v) => updateField(r._key, 'item', v)}
-                    placeholderTextColor={T.faint}
                     editable={r._keep}
                   />
-                </View>
-                <View style={s.reviewRow}>
-                  <Text style={s.reviewLabel}>₦ AMOUNT</Text>
-                  <TextInput
-                    style={s.reviewInput}
+                  <Input
+                    label="Amount (₦)"
+                    mono
                     value={r.total ? String(r.total) : ''}
                     onChangeText={(v) => updateField(r._key, 'total', v)}
                     keyboardType="numeric"
-                    placeholderTextColor={T.faint}
                     placeholder="0"
                     editable={r._keep}
                   />
-                </View>
-                <View style={s.reviewRowHalf}>
-                  <View style={[s.reviewRow, { flex: 1 }]}>
-                    <Text style={s.reviewLabel}>DATE</Text>
-                    <TextInput
-                      style={s.reviewInput}
+                  <View style={s.row}>
+                    <Input
+                      label="Date"
+                      mono
                       value={r.date || ''}
                       onChangeText={(v) => updateField(r._key, 'date', v)}
                       placeholder="YYYY-MM-DD"
-                      placeholderTextColor={T.faint}
                       editable={r._keep}
+                      containerStyle={s.grow}
                     />
-                  </View>
-                  <View style={[s.reviewRow, { flex: 1 }]}>
-                    <Text style={s.reviewLabel}>CUSTOMER</Text>
-                    <TextInput
-                      style={s.reviewInput}
+                    <Input
+                      label="Customer"
                       value={r.customer || ''}
                       onChangeText={(v) => updateField(r._key, 'customer', v)}
                       placeholder="Optional"
-                      placeholderTextColor={T.faint}
                       editable={r._keep}
+                      containerStyle={s.grow}
                     />
                   </View>
                 </View>
-              </View>
-            </View>
-          ))}
+              </Card>
+            ))}
+          </ScrollView>
 
-          {/* Save footer */}
-          <TouchableOpacity
-            style={[s.saveBtn, keptCount === 0 && s.saveBtnDisabled]}
-            onPress={handleSave}
-            disabled={keptCount === 0}
-            activeOpacity={0.85}
-          >
-            <Text style={s.saveBtnText}>
-              Save {keptCount} Sale{keptCount !== 1 ? 's' : ''}
-            </Text>
-          </TouchableOpacity>
-
-          <View style={{ height: 40 }} />
-        </ScrollView>
-      )}
-    </SafeAreaView>
+          <ModalFooter>
+            <Button
+              grow size="lg"
+              onPress={handleSave}
+              disabled={keptCount === 0}
+              loading={saving}
+              label={keptCount === 0 ? 'Nothing ticked' : `Save ${plural(keptCount, 'sale')}`}
+            />
+          </ModalFooter>
+        </>
+      ) : null}
+    </Screen>
   )
 }
 
-const PHOTO_SIZE = 100
+const PHOTO = 96
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: T.bg },
+  scroll: { padding: SP.xl, gap: SP.lg },
+  row: { flexDirection: 'row', gap: SP.md },
+  grow: { flex: 1 },
+  pressed: { opacity: 0.8 },
 
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: T.dark,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  headerSide: { width: 70 },
-  headerCenter: { flex: 1, alignItems: 'center' },
-  headerTitle: { fontSize: 15, fontWeight: '700', color: '#fff' },
-  headerSub: { fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 2, fontFamily: FONT.mono },
-  cancelBtn: { fontSize: 15, color: 'rgba(255,255,255,0.65)', fontWeight: '500' },
-  doneBtn: { fontSize: 15, color: T.accentMid, fontWeight: '700', textAlign: 'right' },
-
-  scroll: { padding: 18, gap: 14 },
-
-  // Select step
-  addBox: {
-    backgroundColor: T.surface,
-    borderWidth: 2,
-    borderColor: T.accent,
+  drop: {
+    borderWidth: 1.5,
     borderStyle: 'dashed',
-    borderRadius: 18,
-    paddingVertical: 36,
-    alignItems: 'center',
-    gap: 10,
-  },
-  addBoxLoading: { borderStyle: 'solid', borderColor: T.border },
-  addBoxTitle: { fontSize: 16, fontWeight: '700', color: T.dark },
-  addBoxSub: { fontSize: 12, color: T.muted, textAlign: 'center', paddingHorizontal: 24 },
-
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  photoWrap: { width: PHOTO_SIZE, height: PHOTO_SIZE, borderRadius: 10, overflow: 'visible' },
-  photo: { width: PHOTO_SIZE, height: PHOTO_SIZE, borderRadius: 10, backgroundColor: T.border },
-  removeBtn: {
-    position: 'absolute',
-    top: -7,
-    right: -7,
-    width: 22,
-    height: 22,
-    backgroundColor: T.error,
-    borderRadius: 11,
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 10,
-  },
-
-  extractBtn: {
-    backgroundColor: T.accent,
-    borderRadius: 16,
-    paddingVertical: 16,
-    alignItems: 'center',
-    shadowColor: T.accent,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    elevation: 6,
-  },
-  extractBtnLoading: { backgroundColor: T.accentDark },
-  extractingRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  extractBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-
-  noKeyBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: T.warningLight,
-    borderRadius: 10,
-    padding: 12,
-  },
-  noKeyText: { flex: 1, fontSize: 12, color: T.warning, lineHeight: 17 },
-
-  // Review step
-  reviewHint: {
-    fontSize: 13,
-    color: T.muted,
-    lineHeight: 19,
-    backgroundColor: T.accentLight,
-    borderRadius: 12,
-    padding: 12,
-  },
-  reviewCard: {
-    flexDirection: 'row',
-    gap: 12,
+    borderColor: T.accent,
+    borderRadius: R.xl,
     backgroundColor: T.surface,
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: T.border,
-  },
-  reviewCardDim: { opacity: 0.45 },
-  toggle: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: T.border,
+    paddingVertical: SP.xxl,
+    paddingHorizontal: SP.xl,
     alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 2,
-    flexShrink: 0,
+    gap: SP.sm,
   },
-  toggleOn: { backgroundColor: T.accent, borderColor: T.accent },
-  reviewFields: { flex: 1, gap: 8 },
-  reviewRow: { gap: 3 },
-  reviewRowHalf: { flexDirection: 'row', gap: 12 },
-  reviewLabel: { fontSize: 9, color: T.faint, fontFamily: FONT.mono, letterSpacing: 1 },
-  reviewInput: {
-    borderBottomWidth: 1,
-    borderBottomColor: T.border,
-    paddingVertical: 4,
-    fontSize: 14,
-    color: T.text,
-    fontWeight: '500',
-  },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: SP.md },
+  photoWrap: { width: PHOTO, height: PHOTO },
+  photo: { width: PHOTO, height: PHOTO, borderRadius: R.md, backgroundColor: T.surfaceHigh },
+  remove: { position: 'absolute', top: -7, right: -7, backgroundColor: T.error, borderColor: T.error },
+  warn: { flexDirection: 'row', alignItems: 'flex-start', gap: SP.sm },
 
-  saveBtn: {
-    backgroundColor: T.accent,
-    borderRadius: 16,
-    paddingVertical: 17,
-    alignItems: 'center',
-    marginTop: 4,
+  review: { flexDirection: 'row', gap: SP.md, padding: SP.md },
+  reviewOff: { opacity: 0.45 },
+  tick: {
+    width: 24, height: 24, borderRadius: 12,
+    borderWidth: 1.5, borderColor: T.borderStrong,
+    alignItems: 'center', justifyContent: 'center',
+    marginTop: 2,
   },
-  saveBtnDisabled: { opacity: 0.4 },
-  saveBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  tickOn: { backgroundColor: T.accent, borderColor: T.accent },
+  fields: { flex: 1, gap: SP.md },
 })

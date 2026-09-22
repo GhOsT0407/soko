@@ -1,30 +1,20 @@
 import { useState, useEffect } from 'react'
-import {
-  View,
-  Text,
-  StyleSheet,
-  TextInput,
-  TouchableOpacity,
-  ScrollView,
-  Alert,
-  ActivityIndicator,
-} from 'react-native'
+import { View, StyleSheet, ScrollView, Alert } from 'react-native'
 import { router } from 'expo-router'
-import { SafeAreaView } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
-import { T, FONT } from '@/constants/theme'
+import { T, SP } from '@/constants/theme'
+import { BUSINESS_TYPES, type BusinessTypeId } from '@/constants/data'
 import { supabase } from '@/lib/supabase'
 import { useStore } from '@/store'
 import type { Business } from '@/types'
+import {
+  Screen, Txt, Card, Button, Input, IconButton, Badge, ListRow, SectionHeader, Avatar,
+  BusinessTypePicker, ModalHeader,
+} from '@/components'
 
-const TYPES = [
-  { id: 'trader', emoji: '🛒', label: 'Trader' },
-  { id: 'shop', emoji: '🏪', label: 'Shop' },
-  { id: 'food', emoji: '🍲', label: 'Food' },
-  { id: 'fashion', emoji: '👗', label: 'Fashion' },
-  { id: 'service', emoji: '🔧', label: 'Service' },
-  { id: 'tech', emoji: '📱', label: 'Tech' },
-]
+function typeLabel(id: string) {
+  return BUSINESS_TYPES.find((b) => b.id === id)?.label.split(' / ')[0] ?? id
+}
 
 export default function SettingsScreen() {
   const activeBusiness = useStore((s) => s.activeBusiness)
@@ -37,7 +27,7 @@ export default function SettingsScreen() {
 
   const [name, setName] = useState(activeBusiness?.name || '')
   const [ownerName, setOwnerName] = useState(activeBusiness?.owner_name || '')
-  const [type, setType] = useState(activeBusiness?.type || 'trader')
+  const [type, setType] = useState<BusinessTypeId>((activeBusiness?.type as BusinessTypeId) || 'trader')
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
 
@@ -53,11 +43,11 @@ export default function SettingsScreen() {
 
   function switchBusiness(biz: Business) {
     if (biz.id === activeBusiness?.id) return
+    // setActiveBusiness clears the data cache itself — see decisions/clear-cache-in-store-not-call-sites
     setActiveBusiness(biz)
-    useStore.getState().clearCache()
     setName(biz.name)
     setOwnerName(biz.owner_name)
-    setType(biz.type)
+    setType(biz.type as BusinessTypeId)
     setDirty(false)
   }
 
@@ -84,7 +74,7 @@ export default function SettingsScreen() {
     }
   }
 
-  async function handleSignOut() {
+  function handleSignOut() {
     Alert.alert('Sign out?', 'You will need to sign in again.', [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -99,320 +89,112 @@ export default function SettingsScreen() {
     ])
   }
 
+  function handleRemoveKey() {
+    Alert.alert('Remove API key', 'Disconnect the assistant?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Remove', style: 'destructive', onPress: () => setApiKey('') },
+    ])
+  }
+
   return (
-    <SafeAreaView style={s.container}>
-      <View style={s.header}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={22} color={T.muted} />
-        </TouchableOpacity>
-        <Text style={s.headerTitle}>Settings</Text>
-        <View style={{ width: 22 }} />
-      </View>
+    <Screen>
+      <ModalHeader title="Settings" back />
 
-      <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={s.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        {/* Business profile */}
         <View style={s.section}>
-          <Text style={s.sectionTitle}>BUSINESS PROFILE</Text>
-
-          <View style={s.field}>
-            <Text style={s.label}>BUSINESS NAME</Text>
-            <TextInput
-              style={[s.input, name.length > 0 && s.inputActive]}
+          <SectionHeader title="Business profile" />
+          <Card style={s.form}>
+            <Input
+              label="Business name"
               value={name}
               onChangeText={(v) => { setName(v); markDirty() }}
               placeholder="Business name"
-              placeholderTextColor={T.faint}
             />
-          </View>
-
-          <View style={s.field}>
-            <Text style={s.label}>OWNER NAME</Text>
-            <TextInput
-              style={[s.input, ownerName.length > 0 && s.inputActive]}
+            <Input
+              label="Owner name"
               value={ownerName}
               onChangeText={(v) => { setOwnerName(v); markDirty() }}
               placeholder="Your name"
-              placeholderTextColor={T.faint}
             />
-          </View>
-
-          <View style={s.field}>
-            <Text style={s.label}>BUSINESS TYPE</Text>
-            <View style={s.typeGrid}>
-              {TYPES.map((bt) => (
-                <TouchableOpacity
-                  key={bt.id}
-                  style={[s.typeBtn, type === bt.id && s.typeBtnActive]}
-                  onPress={() => { setType(bt.id); markDirty() }}
-                  activeOpacity={0.75}
-                >
-                  <Text style={s.typeEmoji}>{bt.emoji}</Text>
-                  <Text style={[s.typeName, type === bt.id && s.typeNameActive]}>{bt.label}</Text>
-                </TouchableOpacity>
-              ))}
+            <View style={s.gapSm}>
+              <Txt variant="label">Business type</Txt>
+              <BusinessTypePicker value={type} onChange={(id) => { setType(id); markDirty() }} />
             </View>
-          </View>
-
-          {dirty && (
-            <TouchableOpacity
-              style={[s.saveBtn, saving && { opacity: 0.6 }]}
-              onPress={handleSave}
-              disabled={saving}
-              activeOpacity={0.85}
-            >
-              {saving ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <Text style={s.saveBtnText}>Save Changes</Text>
-              )}
-            </TouchableOpacity>
-          )}
+            {dirty ? (
+              <Button label="Save changes" onPress={handleSave} loading={saving} disabled={!name.trim()} />
+            ) : null}
+          </Card>
         </View>
 
-        {businesses.length > 1 && (
-          <View style={s.section}>
-            <Text style={s.sectionTitle}>MY BUSINESSES</Text>
-            {businesses.map((biz) => {
+        {/* Businesses */}
+        <View style={s.section}>
+          <SectionHeader
+            title="My businesses"
+            action="Add another"
+            onAction={() => router.push('/onboarding/business' as any)}
+          />
+          <Card padded={false}>
+            {businesses.map((biz, idx) => {
               const active = biz.id === activeBusiness?.id
               return (
-                <TouchableOpacity
+                <ListRow
                   key={biz.id}
-                  style={[s.bizRow, active && s.bizRowActive]}
+                  leading={<Avatar name={biz.name} size={36} tone={active ? 'accent' : 'quiet'} />}
+                  title={biz.name}
+                  titleRight={active ? <Badge label="Current" tone="accent" /> : undefined}
+                  meta={typeLabel(biz.type)}
+                  trailing={active ? <Ionicons name="checkmark-circle" size={20} color={T.accent} /> : <View style={s.spacer} />}
                   onPress={() => switchBusiness(biz)}
-                  activeOpacity={0.75}
-                >
-                  <View style={[s.bizDot, active && s.bizDotActive]} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={[s.bizName, active && { color: T.accent }]}>{biz.name}</Text>
-                    <Text style={s.bizType}>{biz.type}</Text>
-                  </View>
-                  {active && <Ionicons name="checkmark-circle" size={18} color={T.accent} />}
-                </TouchableOpacity>
+                  last={idx === businesses.length - 1}
+                />
               )
             })}
-            <TouchableOpacity
-              style={s.addBizBtn}
-              onPress={() => router.push('/onboarding/business' as any)}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="add-circle-outline" size={16} color={T.accent} />
-              <Text style={s.addBizText}>Add another business</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+          </Card>
+        </View>
 
-        {businesses.length <= 1 && (
-          <TouchableOpacity
-            style={s.addBizBtnStandalone}
-            onPress={() => router.push('/onboarding/business' as any)}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="add-circle-outline" size={16} color={T.accent} />
-            <Text style={s.addBizText}>Add another business</Text>
-          </TouchableOpacity>
-        )}
-
+        {/* Account + assistant */}
         <View style={s.section}>
-          <Text style={s.sectionTitle}>ACCOUNT</Text>
-          <View style={s.infoRow}>
-            <Ionicons name="person-circle-outline" size={18} color={T.muted} />
-            <Text style={s.infoText} numberOfLines={1}>{session?.user.email}</Text>
-          </View>
+          <SectionHeader title="Account" />
+          <Card padded={false}>
+            <ListRow
+              leading={<Ionicons name="person-circle-outline" size={22} color={T.muted} />}
+              title={session?.user.email ?? '—'}
+              meta="Signed in"
+            />
+            <ListRow
+              leading={<Ionicons name="sparkles" size={20} color={apiKey ? T.green : T.faint} />}
+              title="Assistant"
+              meta={apiKey ? `Gemini key ····${apiKey.slice(-6)}` : 'Not connected'}
+              trailing={
+                apiKey ? (
+                  <Button label="Remove" size="sm" variant="secondary" onPress={handleRemoveKey} />
+                ) : (
+                  <Button label="Set up" size="sm" variant="secondary" onPress={() => router.navigate('/(tabs)/ai')} />
+                )
+              }
+              last
+            />
+          </Card>
         </View>
 
-        <View style={s.section}>
-          <Text style={s.sectionTitle}>AI ASSISTANT</Text>
-          <View style={s.infoRow}>
-            <Ionicons name="sparkles" size={16} color={apiKey ? T.green : T.faint} />
-            <View style={{ flex: 1 }}>
-              <Text style={s.infoTitle}>{apiKey ? 'Connected' : 'Not connected'}</Text>
-              {apiKey && <Text style={s.infoSub}>Key: ••••{apiKey.slice(-6)}</Text>}
-            </View>
-            {apiKey ? (
-              <TouchableOpacity
-                style={s.smallDangerBtn}
-                onPress={() =>
-                  Alert.alert('Remove API Key', 'Disconnect the AI assistant?', [
-                    { text: 'Cancel', style: 'cancel' },
-                    { text: 'Remove', style: 'destructive', onPress: () => setApiKey('') },
-                  ])
-                }
-              >
-                <Text style={s.smallDangerBtnText}>Remove</Text>
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity style={s.smallAccentBtn} onPress={() => router.navigate('/(tabs)/ai')}>
-                <Text style={s.smallAccentBtnText}>Set up</Text>
-              </TouchableOpacity>
-            )}
-          </View>
+        <Button label="Sign out" icon="log-out-outline" variant="secondary" onPress={handleSignOut} style={s.signOut} />
+
+        <View style={s.about}>
+          <Txt variant="note" align="center">Soko · Your business, in your pocket.</Txt>
+          <Txt variant="meta" align="center">v2.0.0</Txt>
         </View>
-
-        <TouchableOpacity style={s.signOutBtn} onPress={handleSignOut} activeOpacity={0.8}>
-          <Ionicons name="log-out-outline" size={18} color={T.error} />
-          <Text style={s.signOutText}>Sign out</Text>
-        </TouchableOpacity>
-
-        <View style={s.appInfo}>
-          <Text style={s.appInfoText}>Soko · Your business, in your pocket.</Text>
-          <Text style={s.appInfoVersion}>v2.0.0</Text>
-        </View>
-
-        <View style={{ height: 32 }} />
       </ScrollView>
-    </SafeAreaView>
+    </Screen>
   )
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: T.bg },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: T.border,
-  },
-  headerTitle: { fontSize: 17, fontWeight: '700', color: T.text },
-  scroll: { padding: 20, gap: 16 },
-
-  section: {
-    backgroundColor: T.surface,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: T.border,
-    padding: 16,
-    gap: 14,
-  },
-  sectionTitle: {
-    fontSize: 9,
-    fontWeight: '700',
-    color: T.muted,
-    letterSpacing: 2,
-    fontFamily: FONT.mono,
-  },
-  field: { gap: 7 },
-  label: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: T.muted,
-    letterSpacing: 1.5,
-    fontFamily: FONT.mono,
-  },
-  input: {
-    backgroundColor: T.bg,
-    borderWidth: 1.5,
-    borderColor: T.border,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 15,
-    color: T.text,
-  },
-  inputActive: { borderColor: T.accent },
-  typeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  typeBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: T.border,
-    backgroundColor: T.bg,
-  },
-  typeBtnActive: { borderColor: T.accent, backgroundColor: T.accentLight },
-  typeEmoji: { fontSize: 15 },
-  typeName: { fontSize: 13, fontWeight: '600', color: T.muted },
-  typeNameActive: { color: T.accent },
-  saveBtn: {
-    backgroundColor: T.accent,
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  saveBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-
-  infoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: T.bg,
-    borderRadius: 12,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: T.border,
-  },
-  infoText: { flex: 1, fontSize: 14, color: T.text },
-  infoTitle: { fontSize: 14, fontWeight: '600', color: T.text },
-  infoSub: { fontSize: 11, color: T.muted, fontFamily: FONT.mono, marginTop: 2 },
-
-  smallAccentBtn: {
-    backgroundColor: T.accentLight,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  smallAccentBtnText: { color: T.accent, fontWeight: '700', fontSize: 12 },
-  smallDangerBtn: {
-    backgroundColor: T.errorLight,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  smallDangerBtnText: { color: T.error, fontWeight: '700', fontSize: 12 },
-
-  signOutBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: T.errorLight,
-    borderRadius: 14,
-    paddingVertical: 14,
-    borderWidth: 1,
-    borderColor: T.error + '33',
-  },
-  signOutText: { color: T.error, fontWeight: '700', fontSize: 15 },
-
-  appInfo: { alignItems: 'center', gap: 4, paddingVertical: 8 },
-  appInfoText: { fontSize: 12, color: T.faint },
-  appInfoVersion: { fontSize: 10, color: T.faint, fontFamily: FONT.mono },
-
-  bizRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: T.bg,
-    borderRadius: 12,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: T.border,
-  },
-  bizRowActive: { borderColor: T.accent, backgroundColor: T.accentLight },
-  bizDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: T.border },
-  bizDotActive: { backgroundColor: T.accent },
-  bizName: { fontSize: 14, fontWeight: '600', color: T.text },
-  bizType: { fontSize: 11, color: T.muted, marginTop: 2 },
-  addBizBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 2,
-  },
-  addBizBtnStandalone: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: T.surface,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: T.border,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-  },
-  addBizText: { fontSize: 13, color: T.accent, fontWeight: '600' },
+  scroll: { padding: SP.xl, gap: SP.xl, paddingBottom: SP.xxl },
+  section: { gap: SP.sm },
+  form: { gap: SP.lg },
+  gapSm: { gap: SP.sm },
+  spacer: { width: 20 },
+  signOut: { alignSelf: 'stretch' },
+  about: { alignItems: 'center', gap: SP.xs },
 })

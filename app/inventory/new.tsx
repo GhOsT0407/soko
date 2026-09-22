@@ -1,35 +1,21 @@
 import { useState } from 'react'
-import {
-  View,
-  Text,
-  StyleSheet,
-  TextInput,
-  TouchableOpacity,
-  ScrollView,
-  KeyboardAvoidingView,
-  Platform,
-  Alert,
-} from 'react-native'
+import { StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Alert } from 'react-native'
 import { router } from 'expo-router'
-import { SafeAreaView } from 'react-native-safe-area-context'
-import { Ionicons } from '@expo/vector-icons'
-import { T, FONT } from '@/constants/theme'
+import { SP } from '@/constants/theme'
 import { supabase } from '@/lib/supabase'
 import { useStore } from '@/store'
+import { Screen, Button, ModalHeader, ModalFooter, StockForm, stockRow, type StockDraft } from '@/components'
 
 export default function NewInventoryScreen() {
   const activeBusiness = useStore((s) => s.activeBusiness)
   const session = useStore((s) => s.session)
 
-  const [name, setName] = useState('')
-  const [qty, setQty] = useState('')
-  const [unit, setUnit] = useState('pcs')
-  const [costPrice, setCostPrice] = useState('')
-  const [sellPrice, setSellPrice] = useState('')
-  const [lowStock, setLowStock] = useState('5')
+  const [draft, setDraft] = useState<StockDraft>({
+    name: '', qty: '', unit: 'pcs', costPrice: '', sellPrice: '', lowStock: '5',
+  })
   const [saving, setSaving] = useState(false)
 
-  const canSave = name.trim().length > 0 && parseFloat(qty) >= 0
+  const canSave = draft.name.trim().length > 0 && parseFloat(draft.qty) >= 0
 
   async function handleSave() {
     if (!canSave || !activeBusiness || !session) return
@@ -38,13 +24,8 @@ export default function NewInventoryScreen() {
       const { error } = await supabase.from('inventory').insert({
         business_id: activeBusiness.id,
         user_id: session.user.id,
-        name: name.trim(),
         category: 'General',
-        qty: parseFloat(qty) || 0,
-        unit: unit.trim() || 'pcs',
-        cost_price: costPrice ? parseFloat(costPrice) : null,
-        sell_price: sellPrice ? parseFloat(sellPrice) : null,
-        low_stock_threshold: parseFloat(lowStock) || 5,
+        ...stockRow(draft),
       })
       if (error) throw error
       useStore.getState().clearCache()
@@ -57,149 +38,27 @@ export default function NewInventoryScreen() {
   }
 
   return (
-    <SafeAreaView style={s.container}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
-        <View style={s.header}>
-          <TouchableOpacity onPress={() => router.back()}>
-            <Ionicons name="close" size={22} color={T.muted} />
-          </TouchableOpacity>
-          <Text style={s.headerTitle}>Add Stock Item</Text>
-          <View style={{ width: 22 }} />
-        </View>
-
-        <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled">
-          <View style={s.field}>
-            <Text style={s.label}>ITEM NAME</Text>
-            <TextInput
-              style={[s.input, name.length > 0 && s.inputActive]}
-              value={name}
-              onChangeText={setName}
-              placeholder="e.g. Rice 50kg, Ankara fabric"
-              placeholderTextColor={T.faint}
-              autoFocus
-            />
-          </View>
-
-          <View style={s.row}>
-            <View style={[s.field, { flex: 2 }]}>
-              <Text style={s.label}>QUANTITY</Text>
-              <TextInput
-                style={[s.input, qty.length > 0 && s.inputActive]}
-                keyboardType="numeric"
-                value={qty}
-                onChangeText={setQty}
-                placeholder="0"
-                placeholderTextColor={T.faint}
-              />
-            </View>
-            <View style={[s.field, { flex: 1 }]}>
-              <Text style={s.label}>UNIT</Text>
-              <TextInput
-                style={[s.input, unit.length > 0 && s.inputActive]}
-                value={unit}
-                onChangeText={setUnit}
-                placeholder="pcs"
-                placeholderTextColor={T.faint}
-              />
-            </View>
-          </View>
-
-          <View style={s.row}>
-            <View style={[s.field, { flex: 1 }]}>
-              <Text style={s.label}>COST PRICE (₦)</Text>
-              <TextInput
-                style={[s.input, costPrice.length > 0 && s.inputActive]}
-                keyboardType="numeric"
-                value={costPrice}
-                onChangeText={setCostPrice}
-                placeholder="Optional"
-                placeholderTextColor={T.faint}
-              />
-            </View>
-            <View style={[s.field, { flex: 1 }]}>
-              <Text style={s.label}>SELL PRICE (₦)</Text>
-              <TextInput
-                style={[s.input, sellPrice.length > 0 && s.inputActive]}
-                keyboardType="numeric"
-                value={sellPrice}
-                onChangeText={setSellPrice}
-                placeholder="Optional"
-                placeholderTextColor={T.faint}
-              />
-            </View>
-          </View>
-
-          <View style={s.field}>
-            <Text style={s.label}>LOW STOCK ALERT BELOW</Text>
-            <TextInput
-              style={[s.input, s.inputActive]}
-              keyboardType="numeric"
-              value={lowStock}
-              onChangeText={setLowStock}
-              placeholder="5"
-              placeholderTextColor={T.faint}
-            />
-          </View>
+    <Screen>
+      <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ModalHeader title="Add stock item" />
+        <ScrollView contentContainerStyle={s.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <StockForm value={draft} onChange={setDraft} autoFocusName />
         </ScrollView>
-
-        <View style={s.footer}>
-          <TouchableOpacity
-            style={[s.saveBtn, (!canSave || saving) && s.saveBtnDisabled]}
+        <ModalFooter>
+          <Button
+            grow size="lg"
             onPress={handleSave}
-            disabled={!canSave || saving}
-            activeOpacity={0.85}
-          >
-            <Text style={s.saveBtnText}>{saving ? 'Saving...' : 'Add to Stock'}</Text>
-          </TouchableOpacity>
-        </View>
+            disabled={!canSave}
+            loading={saving}
+            label={canSave ? 'Add to stock' : 'Enter item name & quantity'}
+          />
+        </ModalFooter>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </Screen>
   )
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: T.bg },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: T.border,
-  },
-  headerTitle: { fontSize: 17, fontWeight: '700', color: T.text },
-  scroll: { padding: 20, gap: 18 },
-  field: { gap: 7 },
-  label: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: T.muted,
-    letterSpacing: 1.5,
-    fontFamily: FONT.mono,
-  },
-  input: {
-    backgroundColor: T.surface,
-    borderWidth: 1.5,
-    borderColor: T.border,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
-    fontSize: 15,
-    color: T.text,
-  },
-  inputActive: { borderColor: T.accent },
-  row: { flexDirection: 'row', gap: 12 },
-  footer: { padding: 16, paddingBottom: 24, borderTopWidth: 1, borderTopColor: T.border },
-  saveBtn: {
-    backgroundColor: T.accent,
-    borderRadius: 14,
-    paddingVertical: 17,
-    alignItems: 'center',
-  },
-  saveBtnDisabled: { backgroundColor: T.border },
-  saveBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  flex: { flex: 1 },
+  scroll: { padding: SP.xl, gap: SP.xl },
 })

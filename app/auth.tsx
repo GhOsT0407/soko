@@ -1,19 +1,16 @@
 import { useState } from 'react'
 import {
   View,
-  Text,
   StyleSheet,
-  TextInput,
-  TouchableOpacity,
+  Pressable,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  ActivityIndicator,
   Alert,
 } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
-import { T, FONT } from '@/constants/theme'
+import { T, FONT, SP } from '@/constants/theme'
 import { supabase } from '@/lib/supabase'
+import { Screen, Txt, Card, Button, Input, Avatar } from '@/components'
 
 export default function AuthScreen() {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin')
@@ -58,161 +55,90 @@ export default function AuthScreen() {
   const ready = email.trim().length > 0 && password.trim().length >= 6
 
   return (
-    <SafeAreaView style={s.container}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+    <Screen edges={['top', 'bottom']}>
+      <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView
           contentContainerStyle={s.scroll}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* Logo */}
-          <View style={s.logoWrap}>
-            <View style={s.logoMark}>
-              <Text style={s.logoLetter}>S</Text>
-            </View>
-            <Text style={s.logoName}>Soko</Text>
-            <Text style={s.logoTagline}>Your business, in your pocket.</Text>
+          {/* Wordmark */}
+          <View style={s.brand}>
+            <Avatar name="Soko" size={64} />
+            <Txt variant="display" style={s.name}>Soko</Txt>
+            <Txt variant="note" align="center">Your business, in your pocket.</Txt>
           </View>
 
-          {/* Card */}
-          <View style={s.card}>
-            <Text style={s.cardTitle}>
-              {mode === 'signin' ? 'Welcome back' : 'Create account'}
-            </Text>
-            <Text style={s.cardSub}>
-              {mode === 'signin'
-                ? 'Sign in to manage your business'
-                : 'Start tracking your business today'}
-            </Text>
-
-            <View style={s.fields}>
-              <View style={s.field}>
-                <Text style={s.label}>EMAIL</Text>
-                <TextInput
-                  style={[s.input, email.length > 0 && s.inputActive]}
-                  value={email}
-                  onChangeText={setEmail}
-                  placeholder="you@example.com"
-                  placeholderTextColor={T.faint}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  returnKeyType="next"
-                />
-              </View>
-
-              <View style={s.field}>
-                <Text style={s.label}>PASSWORD</Text>
-                <TextInput
-                  style={[s.input, password.length > 0 && s.inputActive]}
-                  value={password}
-                  onChangeText={setPassword}
-                  placeholder="6+ characters"
-                  placeholderTextColor={T.faint}
-                  secureTextEntry
-                  returnKeyType="done"
-                  onSubmitEditing={handleSubmit}
-                />
-              </View>
-            </View>
-
-            <TouchableOpacity
-              style={[s.btn, (!ready || loading) && s.btnDisabled]}
-              onPress={handleSubmit}
-              disabled={!ready || loading}
-              activeOpacity={0.85}
-            >
-              {loading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={s.btnText}>
-                  {mode === 'signin' ? 'Sign in' : 'Create account'}
-                </Text>
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={s.switchRow}
-              onPress={() => setMode(mode === 'signin' ? 'signup' : 'signin')}
-            >
-              <Text style={s.switchText}>
+          <Card style={s.card}>
+            <View style={s.gapXs}>
+              <Txt variant="title">{mode === 'signin' ? 'Welcome back' : 'Create account'}</Txt>
+              <Txt variant="meta">
                 {mode === 'signin'
-                  ? "Don't have an account? "
-                  : 'Already have an account? '}
-                <Text style={s.switchLink}>
-                  {mode === 'signin' ? 'Create one' : 'Sign in'}
-                </Text>
-              </Text>
-            </TouchableOpacity>
-          </View>
+                  ? 'Sign in to open your ledger'
+                  : 'Start keeping your books today'}
+              </Txt>
+            </View>
+
+            <View style={s.gapMd}>
+              <Input
+                label="Email"
+                icon="mail-outline"
+                value={email}
+                onChangeText={setEmail}
+                placeholder="you@example.com"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="email"
+                returnKeyType="next"
+              />
+              <Input
+                label="Password"
+                icon="lock-closed-outline"
+                value={password}
+                onChangeText={setPassword}
+                placeholder="6+ characters"
+                secureTextEntry
+                autoComplete={mode === 'signin' ? 'password' : 'new-password'}
+                returnKeyType="done"
+                onSubmitEditing={handleSubmit}
+              />
+            </View>
+
+            <Button
+              size="lg"
+              onPress={handleSubmit}
+              disabled={!ready}
+              loading={loading}
+              label={mode === 'signin' ? 'Sign in' : 'Create account'}
+            />
+
+            <Pressable
+              onPress={() => setMode(mode === 'signin' ? 'signup' : 'signin')}
+              accessibilityRole="link"
+              hitSlop={8}
+              style={s.switch}
+            >
+              <Txt variant="meta">
+                {mode === 'signin' ? "Don't have an account? " : 'Already have an account? '}
+                <Txt style={s.link}>{mode === 'signin' ? 'Create one' : 'Sign in'}</Txt>
+              </Txt>
+            </Pressable>
+          </Card>
         </ScrollView>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </Screen>
   )
 }
 
 const s = StyleSheet.create({
-  container: { flex: 1, backgroundColor: T.bg },
-  scroll: { flexGrow: 1, justifyContent: 'center', padding: 24, gap: 32 },
-
-  logoWrap: { alignItems: 'center', gap: 10 },
-  logoMark: {
-    width: 64,
-    height: 64,
-    borderRadius: 18,
-    backgroundColor: T.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logoLetter: { fontSize: 32, fontWeight: '900', color: '#fff' },
-  logoName: { fontSize: 28, fontWeight: '900', color: T.text, letterSpacing: -1 },
-  logoTagline: { fontSize: 14, color: T.muted, textAlign: 'center' },
-
-  card: {
-    backgroundColor: T.surface,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: T.border,
-    padding: 24,
-    gap: 20,
-  },
-  cardTitle: { fontSize: 22, fontWeight: '800', color: T.text, letterSpacing: -0.5 },
-  cardSub: { fontSize: 14, color: T.muted, marginTop: -10 },
-
-  fields: { gap: 14 },
-  field: { gap: 6 },
-  label: {
-    fontSize: 10,
-    fontWeight: '700',
-    color: T.muted,
-    letterSpacing: 1.5,
-    fontFamily: FONT.mono,
-  },
-  input: {
-    backgroundColor: T.bg,
-    borderWidth: 1.5,
-    borderColor: T.border,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 13,
-    fontSize: 15,
-    color: T.text,
-  },
-  inputActive: { borderColor: T.accent },
-
-  btn: {
-    backgroundColor: T.accent,
-    borderRadius: 14,
-    paddingVertical: 16,
-    alignItems: 'center',
-  },
-  btnDisabled: { opacity: 0.4 },
-  btnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
-
-  switchRow: { alignItems: 'center' },
-  switchText: { fontSize: 13, color: T.muted },
-  switchLink: { color: T.accent, fontWeight: '700' },
+  flex: { flex: 1 },
+  scroll: { flexGrow: 1, justifyContent: 'center', padding: SP.xl, gap: SP.xxl },
+  brand: { alignItems: 'center', gap: SP.sm },
+  name: { marginTop: SP.xs },
+  card: { padding: SP.xl, gap: SP.xl },
+  gapXs: { gap: SP.xs },
+  gapMd: { gap: SP.md },
+  switch: { alignItems: 'center' },
+  link: { fontFamily: FONT.sansBold, fontSize: 12, lineHeight: 16, color: T.accent },
 })

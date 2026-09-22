@@ -6,12 +6,6 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#F7F3ED"
-    },
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.soko.app"
@@ -19,10 +13,9 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#F7F3ED"
+        "backgroundColor": "#FDF7E8"
       },
-      "package": "com.soko.app",
-      "edgeToEdgeEnabled": true
+      "package": "com.soko.app"
     },
     "web": {
       "bundler": "metro",
@@ -40,11 +33,15 @@
       [
         "expo-splash-screen",
         {
+          "image": "./assets/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#F7F3ED"
+          "backgroundColor": "#FDF7E8"
         }
-      ]
+      ],
+      "expo-asset",
+      "expo-font",
+      "expo-status-bar"
     ],
     "experiments": {
       "typedRoutes": true
